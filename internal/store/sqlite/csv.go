@@ -33,7 +33,7 @@ func StreamCSV(db *sql.DB, table string, query map[string][]string, w io.Writer)
 	if err := validateIdentifier(table); err != nil {
 		return err
 	}
-	if !tableOrViewExists(db, table) {
+	if !TableOrViewExists(db, table) {
 		return sql.ErrNoRows
 	}
 

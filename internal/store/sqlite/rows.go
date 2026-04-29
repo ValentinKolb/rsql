@@ -13,7 +13,15 @@ import (
 	"github.com/ValentinKolb/rsql/internal/domain"
 )
 
-var emailLikeWildcard = strings.NewReplacer("*", "%")
+// likeWildcardReplacer translates the user-friendly `*` wildcard in
+// like / ilike values into the SQL `%` wildcard. Kept package-level so
+// every filter pass can reuse a single instance.
+var likeWildcardReplacer = strings.NewReplacer("*", "%")
+
+// aggregateExprRe matches `<col>.<fn>()` aggregate-select syntax such as
+// `umsatz.sum()` or `score.count()`. Pulled to package scope so we don't
+// recompile it inside per-row select/order parsing loops.
+var aggregateExprRe = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_]*)\.(count|sum|avg|min|max)\(\)$`)
 
 const (
 	defaultListLimit = 100
@@ -32,9 +40,6 @@ func TableOrViewExists(db *sql.DB, name string) bool {
 	return n == 1
 }
 
-// tableOrViewExists is the unexported alias kept for backwards
-// compatibility with existing internal callers.
-func tableOrViewExists(db *sql.DB, name string) bool { return TableOrViewExists(db, name) }
 
 // IsView reports whether object is a view.
 func IsView(db *sql.DB, name string) (bool, error) {
@@ -102,7 +107,7 @@ func ListRows(db *sql.DB, table string, query map[string][]string) (any, error) 
 	}
 	// Surface missing-table as a typed 404 instead of letting the
 	// `SELECT * FROM <missing>` SQL error bubble up as a 500.
-	if !tableOrViewExists(db, table) {
+	if !TableOrViewExists(db, table) {
 		return nil, sql.ErrNoRows
 	}
 
@@ -266,7 +271,7 @@ func buildSelectClause(sel string) (sqlExpr string, aggMode bool, groupBy string
 			exprs = append(exprs, `COUNT(*) AS "count"`)
 			continue
 		}
-		if m := regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_]*)\.(count|sum|avg|min|max)\(\)$`).FindStringSubmatch(item); len(m) == 3 {
+		if m := aggregateExprRe.FindStringSubmatch(item); len(m) == 3 {
 			aggMode = true
 			col := m[1]
 			if err := validateIdentifier(col); err != nil {
@@ -305,7 +310,7 @@ func buildOrderClause(order string) (string, error) {
 			p = strings.TrimSuffix(p, ".asc")
 		}
 
-		if m := regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_]*)\.(count|sum|avg|min|max)\(\)$`).FindStringSubmatch(p); len(m) == 3 {
+		if m := aggregateExprRe.FindStringSubmatch(p); len(m) == 3 {
 			out = append(out, strings.ToUpper(m[2])+`(`+quotedIdentifier(m[1])+`) `+dir)
 			continue
 		}
@@ -324,18 +329,12 @@ var reservedQuery = map[string]struct{}{
 	"format": {}, "bom": {},
 }
 
-// BuildWhereForBulk builds SQL WHERE clause for bulk update/delete operations.
+// BuildWhereForBulk builds the WHERE clause for bulk update / delete from
+// the row-list query grammar. Reserved keys (select, order, limit, offset,
+// search, or, and, format, bom) are filtered inside buildWhereClause via
+// reservedQuery so this is a thin pass-through.
 func BuildWhereForBulk(query map[string][]string) (string, []any, error) {
-	clone := make(map[string][]string, len(query))
-	for k, v := range query {
-		clone[k] = v
-	}
-	delete(clone, "select")
-	delete(clone, "order")
-	delete(clone, "limit")
-	delete(clone, "offset")
-	delete(clone, "search")
-	return buildWhereClause(clone)
+	return buildWhereClause(query)
 }
 
 func buildWhereClause(query map[string][]string) (string, []any, error) {
@@ -479,9 +478,9 @@ func parseFilterToken(colExpr, token string) (string, []any, error) {
 	case "lte":
 		return wrapNot(colExpr + " <= ?"), []any{parseFilterValue(val)}, nil
 	case "like":
-		return wrapNot(colExpr + " LIKE ?"), []any{emailLikeWildcard.Replace(val)}, nil
+		return wrapNot(colExpr + " LIKE ?"), []any{likeWildcardReplacer.Replace(val)}, nil
 	case "ilike":
-		return wrapNot(colExpr + " LIKE ? COLLATE NOCASE"), []any{emailLikeWildcard.Replace(val)}, nil
+		return wrapNot(colExpr + " LIKE ? COLLATE NOCASE"), []any{likeWildcardReplacer.Replace(val)}, nil
 	case "in":
 		if !strings.HasPrefix(val, "(") || !strings.HasSuffix(val, ")") {
 			return "", nil, fmt.Errorf("invalid in() value %q", val)
@@ -1015,8 +1014,6 @@ func conflictTarget(tx *sql.Tx, table string) (string, error) {
 			}
 			return strings.Join(quoted, ","), nil
 		}
-		_ = origin
-		_ = partial
 	}
 	return "", fmt.Errorf("no unique index available for upsert")
 }
@@ -1196,17 +1193,28 @@ func buildAtomicOp(colName string, col domain.ColumnDefinition, op string, arg a
 		if col.Type != "integer" && col.Type != "real" {
 			return "", nil, fmt.Errorf("validation_failed: $increment invalid for %s", colName)
 		}
-		return colExpr + ` = ` + colExpr + ` + ?`, []any{arg}, nil
+		num, err := toFloat(arg)
+		if err != nil {
+			return "", nil, fmt.Errorf("validation_failed: $increment expects number for %s", colName)
+		}
+		return colExpr + ` = ` + colExpr + ` + ?`, []any{num}, nil
 	case "$multiply":
 		if col.Type != "integer" && col.Type != "real" {
 			return "", nil, fmt.Errorf("validation_failed: $multiply invalid for %s", colName)
 		}
-		return colExpr + ` = ` + colExpr + ` * ?`, []any{arg}, nil
+		num, err := toFloat(arg)
+		if err != nil {
+			return "", nil, fmt.Errorf("validation_failed: $multiply expects number for %s", colName)
+		}
+		return colExpr + ` = ` + colExpr + ` * ?`, []any{num}, nil
 	case "$append":
 		if col.Type != "json" {
 			return "", nil, fmt.Errorf("validation_failed: $append invalid for %s", colName)
 		}
-		b, _ := json.Marshal(arg)
+		b, err := json.Marshal(arg)
+		if err != nil {
+			return "", nil, fmt.Errorf("validation_failed: $append invalid json for %s", colName)
+		}
 		return colExpr + ` = json_insert(COALESCE(` + colExpr + `,'[]'), '$[#]', json(?))`, []any{string(b)}, nil
 	case "$remove":
 		if col.Type != "json" {

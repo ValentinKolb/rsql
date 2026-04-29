@@ -24,10 +24,12 @@ type handle struct {
 
 // Manager manages namespace DB handles and per-namespace locks.
 type Manager struct {
-	mu      sync.Mutex
-	handles map[string]*handle
-	cfg     Config
-	closed  chan struct{}
+	mu        sync.Mutex
+	handles   map[string]*handle
+	cfg       Config
+	closed    chan struct{}
+	closeOnce sync.Once
+	shutdown  atomic.Bool
 }
 
 // NewManager creates a namespace manager.
@@ -117,24 +119,30 @@ func (m *Manager) collectIdle() {
 	}
 }
 
-// Close closes all open namespace handles.
+// Close closes all open namespace handles. Safe to call multiple times;
+// subsequent calls are no-ops. After Close, getOrOpen rejects new work.
 func (m *Manager) Close() error {
-	close(m.closed)
+	m.closeOnce.Do(func() {
+		m.shutdown.Store(true)
+		close(m.closed)
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for name, h := range m.handles {
-		h.rw.Lock()
-		h.closed.Store(true)
-		_ = h.db.Close()
-		h.rw.Unlock()
-		delete(m.handles, name)
-	}
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		for name, h := range m.handles {
+			h.rw.Lock()
+			h.closed.Store(true)
+			_ = h.db.Close()
+			h.rw.Unlock()
+			delete(m.handles, name)
+		}
+	})
 	return nil
 }
 
 func (m *Manager) getOrOpen(name, path string) (*handle, error) {
+	if m.shutdown.Load() {
+		return nil, fmt.Errorf("namespace manager is shut down")
+	}
 	m.mu.Lock()
 	if h, ok := m.handles[name]; ok {
 		h.touch()

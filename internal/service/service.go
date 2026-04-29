@@ -90,6 +90,11 @@ func (s *Service) CreateNamespace(req domain.NamespaceDefinition) (map[string]an
 		return nil
 	})
 	if err != nil {
+		// Init failed — roll back the registry entry, the open DB handle,
+		// and the on-disk file so a retried create starts from clean state.
+		_ = s.ns.CloseHandle(req.Name)
+		_ = os.Remove(path)
+		_ = s.registry.Delete(req.Name)
 		return nil, domain.WrapError(domain.ErrInternal, 500, "failed to initialize namespace", err)
 	}
 
@@ -586,6 +591,21 @@ func (s *Service) GetRow(ns, table string, id any) (map[string]any, error) {
 	return out, nil
 }
 
+// assertWritableTable returns a typed read-only error if the named object
+// is a view. Used at the top of every row-write callback so the rejection
+// message stays consistent and the action verb is the only thing that
+// varies per call site.
+func assertWritableTable(db *sql.DB, table, action string) error {
+	isView, err := sqlite.IsView(db, table)
+	if err != nil {
+		return err
+	}
+	if isView {
+		return domain.NewError(domain.ErrReadOnly, 405, fmt.Sprintf("Cannot %s view '%s'. Views are read-only.", action, table))
+	}
+	return nil
+}
+
 // InsertRows inserts one or many rows.
 func (s *Service) InsertRows(ns, table string, rows []map[string]any, prefer string, meta json.RawMessage) (any, error) {
 	path, err := s.pathForNamespace(ns)
@@ -595,12 +615,8 @@ func (s *Service) InsertRows(ns, table string, rows []map[string]any, prefer str
 	var out []map[string]any
 	var ids []any
 	err = s.ns.WithWrite(ns, path, func(db *sql.DB) error {
-		isView, err := sqlite.IsView(db, table)
-		if err != nil {
+		if err := assertWritableTable(db, table, "insert into"); err != nil {
 			return err
-		}
-		if isView {
-			return domain.NewError(domain.ErrReadOnly, 405, fmt.Sprintf("Cannot insert into view '%s'. Views are read-only.", table))
 		}
 		inserted, insertedIDs, err := sqlite.InsertRows(db, table, rows, prefer)
 		if err != nil {
@@ -634,12 +650,8 @@ func (s *Service) UpdateRow(ns, table string, id any, payload map[string]any, pr
 	}
 	var rows []map[string]any
 	err = s.ns.WithWrite(ns, path, func(db *sql.DB) error {
-		isView, err := sqlite.IsView(db, table)
-		if err != nil {
+		if err := assertWritableTable(db, table, "update"); err != nil {
 			return err
-		}
-		if isView {
-			return domain.NewError(domain.ErrReadOnly, 405, fmt.Sprintf("Cannot update view '%s'. Views are read-only.", table))
 		}
 		rows, err = sqlite.UpdateRowByID(db, table, id, payload, prefer)
 		return err
@@ -665,12 +677,8 @@ func (s *Service) DeleteRow(ns, table string, id any, prefer string, meta json.R
 	}
 	var rows []map[string]any
 	err = s.ns.WithWrite(ns, path, func(db *sql.DB) error {
-		isView, err := sqlite.IsView(db, table)
-		if err != nil {
+		if err := assertWritableTable(db, table, "delete from"); err != nil {
 			return err
-		}
-		if isView {
-			return domain.NewError(domain.ErrReadOnly, 405, fmt.Sprintf("Cannot delete from view '%s'. Views are read-only.", table))
 		}
 		rows, err = sqlite.DeleteRowByID(db, table, id, prefer)
 		return err
@@ -703,12 +711,8 @@ func (s *Service) BulkUpdate(ns, table string, query map[string][]string, payloa
 	var ids []any
 	var rows []map[string]any
 	err = s.ns.WithWrite(ns, path, func(db *sql.DB) error {
-		isView, err := sqlite.IsView(db, table)
-		if err != nil {
+		if err := assertWritableTable(db, table, "update"); err != nil {
 			return err
-		}
-		if isView {
-			return domain.NewError(domain.ErrReadOnly, 405, fmt.Sprintf("Cannot update view '%s'. Views are read-only.", table))
 		}
 		ids, rows, err = sqlite.BulkUpdateRows(db, table, payload, where, args, prefer)
 		return err
@@ -740,12 +744,8 @@ func (s *Service) BulkDelete(ns, table string, query map[string][]string, prefer
 	var ids []any
 	var rows []map[string]any
 	err = s.ns.WithWrite(ns, path, func(db *sql.DB) error {
-		isView, err := sqlite.IsView(db, table)
-		if err != nil {
+		if err := assertWritableTable(db, table, "delete from"); err != nil {
 			return err
-		}
-		if isView {
-			return domain.NewError(domain.ErrReadOnly, 405, fmt.Sprintf("Cannot delete from view '%s'. Views are read-only.", table))
 		}
 		ids, rows, err = sqlite.BulkDeleteRows(db, table, where, args, prefer)
 		return err

@@ -15,7 +15,6 @@ func TestLoadAndValidate(t *testing.T) {
 	v.Set("log-level", "INFO")
 	v.Set("query-timeout-ms", 2500)
 	v.Set("namespace-idle-timeout-ms", 60000)
-	v.Set("max-open-namespaces", 42)
 	v.Set("read-timeout-ms", 11000)
 	v.Set("write-timeout-ms", 12000)
 	v.Set("idle-timeout-ms", 13000)
@@ -59,7 +58,6 @@ func TestValidateRejectsMissingToken(t *testing.T) {
 	cfg := Config{
 		Listen:            ":8080",
 		DataDir:           "data",
-		MaxOpenNamespaces: 1,
 	}
 
 	if err := cfg.Validate(); err == nil {
@@ -69,10 +67,6 @@ func TestValidateRejectsMissingToken(t *testing.T) {
 
 func TestValidateRejectsOtherInvalidFields(t *testing.T) {
 	tests := []Config{
-		{DataDir: "data", APIToken: "x", MaxOpenNamespaces: 1},
-		{Listen: ":8080", APIToken: "x", MaxOpenNamespaces: 1},
-		{Listen: ":8080", DataDir: "data", APIToken: "x", MaxOpenNamespaces: 0},
-		{Listen: ":8080", PprofEnabled: true, DataDir: "data", APIToken: "x", MaxOpenNamespaces: 1},
 	}
 	for i, cfg := range tests {
 		if err := cfg.Validate(); err == nil {
@@ -94,7 +88,6 @@ func TestLoadNegativeOtherDurations(t *testing.T) {
 		v.Set("listen", ":8080")
 		v.Set("data-dir", "data")
 		v.Set("api-token", "secret")
-		v.Set("max-open-namespaces", 1)
 		v.Set(key, -1)
 		if _, err := Load(v); err == nil {
 			t.Fatalf("expected negative duration error for key %s", key)

@@ -20,7 +20,6 @@ type Config struct {
 	LogLevel             string
 	QueryTimeout         time.Duration
 	NamespaceIdleTimeout time.Duration
-	MaxOpenNamespaces    int
 	ReadTimeout          time.Duration
 	WriteTimeout         time.Duration
 	IdleTimeout          time.Duration
@@ -52,7 +51,6 @@ func BindServeFlags(flags *pflag.FlagSet) {
 	flags.String("log-level", "info", "Log level (debug, info, warn, error)")
 	flags.Int("query-timeout-ms", 10000, "Default query timeout in milliseconds")
 	flags.Int("namespace-idle-timeout-ms", 300000, "Namespace idle close timeout in milliseconds")
-	flags.Int("max-open-namespaces", 512, "Maximum number of open namespaces")
 	flags.Int("read-timeout-ms", 15000, "HTTP read timeout in milliseconds")
 	flags.Int("write-timeout-ms", 15000, "HTTP write timeout in milliseconds")
 	flags.Int("idle-timeout-ms", 120000, "HTTP idle timeout in milliseconds")
@@ -68,7 +66,6 @@ func Load(v *viper.Viper) (Config, error) {
 		DataDir:           v.GetString("data-dir"),
 		APIToken:          v.GetString("api-token"),
 		LogLevel:          strings.ToLower(v.GetString("log-level")),
-		MaxOpenNamespaces: v.GetInt("max-open-namespaces"),
 	}
 
 	var err error
@@ -115,9 +112,6 @@ func (c Config) Validate() error {
 	if c.APIToken == "" {
 		return fmt.Errorf("api-token must not be empty")
 	}
-	if c.MaxOpenNamespaces <= 0 {
-		return fmt.Errorf("max-open-namespaces must be > 0")
-	}
 	return nil
 }
 
@@ -137,7 +131,6 @@ func (c Config) Redacted() map[string]any {
 		"log_level":              c.LogLevel,
 		"query_timeout":          c.QueryTimeout.String(),
 		"namespace_idle_timeout": c.NamespaceIdleTimeout.String(),
-		"max_open_namespaces":    c.MaxOpenNamespaces,
 		"read_timeout":           c.ReadTimeout.String(),
 		"write_timeout":          c.WriteTimeout.String(),
 		"idle_timeout":           c.IdleTimeout.String(),

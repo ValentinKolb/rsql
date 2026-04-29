@@ -522,6 +522,12 @@ func UpdateTableOrView(db *sql.DB, name string, req domain.TableUpdateRequest) e
 		return tx.Commit()
 	}
 
+	// Load the persisted schema once; we keep it in sync with every column
+	// mutation below so validation reads stay accurate after rename / add /
+	// drop operations.
+	var stored TableSchema
+	hadSchema, _ := getMetaTx(tx, "table_schema", name, &stored)
+
 	newName := name
 	if req.Rename != "" {
 		if err := validateIdentifier(req.Rename); err != nil {
@@ -542,6 +548,14 @@ func UpdateTableOrView(db *sql.DB, name string, req domain.TableUpdateRequest) e
 		}
 		if _, err := tx.Exec(`ALTER TABLE ` + quotedIdentifier(newName) + ` RENAME COLUMN ` + quotedIdentifier(oldCol) + ` TO ` + quotedIdentifier(newCol)); err != nil {
 			return fmt.Errorf("rename column: %w", err)
+		}
+		if hadSchema {
+			for i := range stored.Columns {
+				if stored.Columns[i].Name == oldCol {
+					stored.Columns[i].Name = newCol
+					break
+				}
+			}
 		}
 	}
 
@@ -570,6 +584,9 @@ func UpdateTableOrView(db *sql.DB, name string, req domain.TableUpdateRequest) e
 		if _, err := tx.Exec(stmt); err != nil {
 			return fmt.Errorf("add column: %w", err)
 		}
+		if hadSchema {
+			stored.Columns = append(stored.Columns, col)
+		}
 	}
 
 	for _, col := range req.DropColumns {
@@ -579,6 +596,14 @@ func UpdateTableOrView(db *sql.DB, name string, req domain.TableUpdateRequest) e
 		if _, err := tx.Exec(`ALTER TABLE ` + quotedIdentifier(newName) + ` DROP COLUMN ` + quotedIdentifier(col)); err != nil {
 			return fmt.Errorf("drop column: %w", err)
 		}
+		if hadSchema {
+			for i := range stored.Columns {
+				if stored.Columns[i].Name == col {
+					stored.Columns = append(stored.Columns[:i], stored.Columns[i+1:]...)
+					break
+				}
+			}
+		}
 	}
 
 	if len(req.Metadata) > 0 {
@@ -586,13 +611,15 @@ func UpdateTableOrView(db *sql.DB, name string, req domain.TableUpdateRequest) e
 			return err
 		}
 	}
-	if req.Rename != "" {
-		var schema TableSchema
-		if ok, _ := getMetaTx(tx, "table_schema", name, &schema); ok {
-			schema.Name = req.Rename
-			if err := putMetaTx(tx, "table_schema", req.Rename, schema); err != nil {
-				return err
-			}
+
+	// Re-persist the updated table_schema if we held one, mirroring any
+	// rename and column mutations applied above.
+	if hadSchema {
+		stored.Name = newName
+		if err := putMetaTx(tx, "table_schema", newName, stored); err != nil {
+			return err
+		}
+		if newName != name {
 			if err := deleteMetaTx(tx, "table_schema", name); err != nil {
 				return err
 			}
@@ -691,6 +718,14 @@ func CreateIndex(db *sql.DB, table string, req domain.IndexCreateRequest) error 
 		}
 		if !internalIdentRe.MatchString(name) {
 			return fmt.Errorf("invalid identifier %q", name)
+		}
+		// FTS5's CREATE VIRTUAL TABLE column list is bare-name only —
+		// validate each column name strictly so the joined string cannot
+		// smuggle SQL.
+		for _, c := range req.Columns {
+			if err := validateIdentifier(c); err != nil {
+				return err
+			}
 		}
 		colList := strings.Join(req.Columns, ",")
 		if _, err := tx.Exec(`CREATE VIRTUAL TABLE ` + quotedIdentifier(name) + ` USING fts5(` + colList + `, content=` + sqlLiteral(table) + `, content_rowid='id')`); err != nil {
