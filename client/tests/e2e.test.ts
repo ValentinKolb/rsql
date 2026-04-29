@@ -247,6 +247,124 @@ describe("rsql client e2e", () => {
     });
   }, 60_000);
 
+  test("user column 'meta' coexists with audit _meta passthrough", async () => {
+    await withServer(async (running) => {
+      const client = createRsqlClient({ url: running.url, token: running.token });
+      const ns = `e2e_metacol_${Date.now()}`;
+
+      await expectOk(
+        client.namespaces.create({
+          name: ns,
+          config: {
+            journal_mode: "wal",
+            busy_timeout: 5000,
+            query_timeout: 10000,
+            foreign_keys: true,
+            read_only: false,
+          },
+        }),
+      );
+      const workspace = client.ns(ns);
+
+      // A table that defines a user column literally named 'meta'.
+      await expectOk(
+        workspace.tables.create({
+          type: "table",
+          name: "items",
+          columns: [
+            { name: "label", type: "text" },
+            { name: "meta", type: "json" },
+          ],
+        }),
+      );
+
+      // Subscribe so we can assert the audit-meta passthrough lands on the
+      // SSE event under the new wire key (`_meta`).
+      const subRes = await workspace.events.subscribe({ tables: ["items"] });
+      if (!subRes.ok) throw new Error(`subscribe: ${subRes.error.message}`);
+
+      const insertRes = await workspace.table("items").rows.insert(
+        { label: "Ada", meta: { a: 1 } },
+        { meta: { actor: "alice", reason: "audit-test" } },
+      );
+      if (!insertRes.ok) throw new Error(`insert: ${insertRes.error.message}`);
+
+      // The user column 'meta' must round-trip with its real JSON value.
+      const got = await expectOk(workspace.table("items").rows.get(1));
+      expect(got.meta).toEqual({ a: 1 });
+      expect((got as Record<string, unknown>).label).toBe("Ada");
+
+      // The audit-meta sent via options.meta must reach SSE as _meta.
+      const event = await nextEvent(subRes.data.stream, 3_000);
+      expect(event.action).toBe("insert");
+      expect(event._meta).toEqual({ actor: "alice", reason: "audit-test" });
+      // The user column value must be intact in the event row payload.
+      expect(event.row?.meta).toEqual({ a: 1 });
+
+      subRes.data.close();
+      await expectOk(client.namespaces.delete(ns));
+    });
+  }, 60_000);
+
+  test("reserved column names are rejected at create time", async () => {
+    await withServer(async (running) => {
+      const client = createRsqlClient({ url: running.url, token: running.token });
+      const ns = `e2e_reserved_${Date.now()}`;
+
+      await expectOk(
+        client.namespaces.create({
+          name: ns,
+          config: {
+            journal_mode: "wal",
+            busy_timeout: 5000,
+            query_timeout: 10000,
+            foreign_keys: true,
+            read_only: false,
+          },
+        }),
+      );
+
+      for (const reserved of ["id", "created_at", "updated_at", "_meta", "_anything"]) {
+        const res = await client.ns(ns).tables.create({
+          type: "table",
+          name: `t_${reserved.replace(/_/g, "")}`,
+          columns: [{ name: reserved, type: "text" }],
+        });
+        expect(res.ok).toBe(false);
+        if (!res.ok) {
+          expect(res.status).toBeGreaterThanOrEqual(400);
+          expect(res.status).toBeLessThan(500);
+        }
+      }
+
+      // And the protective DROP/RENAME checks: create a table with a
+      // user-defined column, then verify the auto-managed columns can't
+      // be touched.
+      await expectOk(
+        client.ns(ns).tables.create({
+          type: "table",
+          name: "items",
+          columns: [{ name: "label", type: "text" }],
+        }),
+      );
+      for (const reserved of ["id", "created_at", "updated_at"]) {
+        const dropRes = await client.ns(ns).table("items").schema.update({
+          drop_columns: [reserved],
+        });
+        expect(dropRes.ok).toBe(false);
+        if (!dropRes.ok) expect(dropRes.status).toBeGreaterThanOrEqual(400);
+
+        const renameRes = await client.ns(ns).table("items").schema.update({
+          rename_columns: { [reserved]: `user_${reserved}` },
+        });
+        expect(renameRes.ok).toBe(false);
+        if (!renameRes.ok) expect(renameRes.status).toBeGreaterThanOrEqual(400);
+      }
+
+      await expectOk(client.namespaces.delete(ns));
+    });
+  }, 60_000);
+
   test("csv export with full filter parity", async () => {
     await withServer(async (running) => {
       const client = createRsqlClient({ url: running.url, token: running.token });

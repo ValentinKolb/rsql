@@ -51,7 +51,7 @@ export const createNamespaceModule = (http: HttpClient, namespace: string): Name
         return http.empty(`${base}/tables/${encodeURIComponent(name)}`, {
           method: "DELETE",
           headers: jsonHeaders,
-          body: JSON.stringify({ meta }),
+          body: JSON.stringify({ _meta: meta }),
         });
       },
     },

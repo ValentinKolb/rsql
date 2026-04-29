@@ -16,6 +16,53 @@ var internalIdentRe = regexp.MustCompile(`^[_A-Za-z][_A-Za-z0-9]*$`)
 var formulaAllowedRe = regexp.MustCompile(`^[A-Za-z0-9_+\-*/%(),.<>=!&| \t\r\n]+$`)
 var formulaBlockedKeywordRe = regexp.MustCompile(`(?i)\b(SELECT|FROM|WHERE|DROP|ALTER|CREATE|DELETE|UPDATE|INSERT|PRAGMA|ATTACH|DETACH|VACUUM|REINDEX|TRUNCATE|TRIGGER|TABLE|VIEW|INDEX|UNION|WITH)\b`)
 
+// reservedColumnNames are managed by rsql itself: id is the auto-incremented
+// primary key, created_at/updated_at are auto-maintained timestamps, and
+// _meta is the audit-meta passthrough wire key. None of these may be created,
+// renamed, or dropped by user requests.
+var reservedColumnNames = map[string]struct{}{
+	"id":         {},
+	"created_at": {},
+	"updated_at": {},
+	"_meta":      {},
+}
+
+// validateColumnName enforces the column-naming contract on user input:
+// it must pass the SQL identifier regex, must not start with `_` (reserved
+// for rsql-managed columns and internal tables), and must not be one of the
+// hard-reserved names listed in reservedColumnNames.
+func validateColumnName(name string) error {
+	if err := validateIdentifier(name); err != nil {
+		return err
+	}
+	if _, reserved := reservedColumnNames[name]; reserved {
+		return fmt.Errorf("invalid column name %q: reserved by rsql", name)
+	}
+	if strings.HasPrefix(name, "_") {
+		return fmt.Errorf("invalid column name %q: leading underscore is reserved", name)
+	}
+	return nil
+}
+
+// assertColumnMutable rejects attempts to mutate (rename, drop) a column
+// whose lifecycle rsql owns. Used at the entry of the update paths so the
+// rejection is uniform across rename_columns/drop_columns.
+//
+// Error messages start with "invalid" so the service layer's mapErr maps
+// them to a 400 instead of a generic 500.
+func assertColumnMutable(name string) error {
+	if err := validateIdentifier(name); err != nil {
+		return err
+	}
+	if _, reserved := reservedColumnNames[name]; reserved {
+		return fmt.Errorf("invalid column %q: reserved by rsql, cannot be renamed or dropped", name)
+	}
+	if strings.HasPrefix(name, "_") {
+		return fmt.Errorf("invalid column %q: rsql-internal, cannot be renamed or dropped", name)
+	}
+	return nil
+}
+
 // ListTables lists non-internal tables and views.
 func ListTables(db *sql.DB) ([]map[string]any, error) {
 	rows, err := db.Query(`SELECT name, type, sql FROM sqlite_master WHERE type IN ('table','view') AND name NOT GLOB '_*' AND name != 'sqlite_sequence' ORDER BY name`)
@@ -174,7 +221,7 @@ func buildCreateColumns(cols []domain.ColumnDefinition) ([]string, []domain.Colu
 	}
 
 	for _, c := range cols {
-		if err := validateIdentifier(c.Name); err != nil {
+		if err := validateColumnName(c.Name); err != nil {
 			return nil, nil, err
 		}
 		storage, err := storageType(c.Type)
@@ -487,10 +534,10 @@ func UpdateTableOrView(db *sql.DB, name string, req domain.TableUpdateRequest) e
 	}
 
 	for oldCol, newCol := range req.RenameColumns {
-		if err := validateIdentifier(oldCol); err != nil {
+		if err := assertColumnMutable(oldCol); err != nil {
 			return err
 		}
-		if err := validateIdentifier(newCol); err != nil {
+		if err := validateColumnName(newCol); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`ALTER TABLE ` + quotedIdentifier(newName) + ` RENAME COLUMN ` + quotedIdentifier(oldCol) + ` TO ` + quotedIdentifier(newCol)); err != nil {
@@ -499,7 +546,7 @@ func UpdateTableOrView(db *sql.DB, name string, req domain.TableUpdateRequest) e
 	}
 
 	for _, col := range req.AddColumns {
-		if err := validateIdentifier(col.Name); err != nil {
+		if err := validateColumnName(col.Name); err != nil {
 			return err
 		}
 		storage, err := storageType(col.Type)
@@ -526,7 +573,7 @@ func UpdateTableOrView(db *sql.DB, name string, req domain.TableUpdateRequest) e
 	}
 
 	for _, col := range req.DropColumns {
-		if err := validateIdentifier(col); err != nil {
+		if err := assertColumnMutable(col); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`ALTER TABLE ` + quotedIdentifier(newName) + ` DROP COLUMN ` + quotedIdentifier(col)); err != nil {

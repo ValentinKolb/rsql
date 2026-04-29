@@ -831,7 +831,7 @@ func extractMeta(r *http.Request) json.RawMessage {
 	if err != nil {
 		return nil
 	}
-	if raw, ok := body["meta"]; ok {
+	if raw, ok := body["_meta"]; ok {
 		return raw
 	}
 	return nil

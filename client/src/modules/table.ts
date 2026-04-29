@@ -109,7 +109,7 @@ const createRowsModule = <Row extends Record<string, unknown>>(ctx: Context): Ro
     insert(rows: Partial<Row> | Array<Partial<Row>>, options?: MutateOptions) {
       const body = Array.isArray(rows) ? { rows } : { ...rows };
       if (options?.meta) {
-        (body as Record<string, unknown>).meta = options.meta;
+        (body as Record<string, unknown>)._meta = options.meta;
       }
       return ctx.http.json(basePath, {
         method: "POST",
@@ -155,7 +155,7 @@ const deleteWithOptionalMeta = (http: HttpClient, path: string, meta?: Record<st
   return http.empty(path, {
     method: "DELETE",
     headers: jsonHeaders,
-    body: JSON.stringify({ meta }),
+    body: JSON.stringify({ _meta: meta }),
   });
 };
 
@@ -165,7 +165,7 @@ const deleteWithPreferAndMeta = <Row extends Record<string, unknown>>(
   options?: MutateOptions,
 ): Promise<RsqlResult<{ data: Row[] } | { deleted: number } | void>> => {
   const headers = withPrefer(options?.prefer);
-  const body = options?.meta ? JSON.stringify({ meta: options.meta }) : undefined;
+  const body = options?.meta ? JSON.stringify({ _meta: options.meta }) : undefined;
 
   if (options?.prefer === "return=representation") {
     return http.json<{ data: Row[] }>(path, {
@@ -188,7 +188,7 @@ const withMeta = (payload: Record<string, unknown>, meta?: Record<string, unknow
   }
   return {
     ...payload,
-    meta,
+    _meta: meta,
   };
 };
 

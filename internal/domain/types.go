@@ -45,7 +45,9 @@ type TableCreateRequest struct {
 	Metadata json.RawMessage    `json:"metadata,omitempty"`
 	Columns  []ColumnDefinition `json:"columns,omitempty"`
 	SQL      string             `json:"sql,omitempty"`
-	Meta     json.RawMessage    `json:"meta,omitempty"`
+	// Meta is the audit-meta passthrough. The wire key is `_meta` so it
+	// cannot collide with a user-defined column named `meta`.
+	Meta json.RawMessage `json:"_meta,omitempty"`
 }
 
 // IndexCreateRequest defines a table index creation.
@@ -53,7 +55,7 @@ type IndexCreateRequest struct {
 	Type    string          `json:"type"`
 	Name    string          `json:"name,omitempty"`
 	Columns []string        `json:"columns"`
-	Meta    json.RawMessage `json:"meta,omitempty"`
+	Meta    json.RawMessage `json:"_meta,omitempty"`
 }
 
 // TableUpdateRequest updates table schema or view SQL.
@@ -64,7 +66,7 @@ type TableUpdateRequest struct {
 	RenameColumns map[string]string  `json:"rename_columns,omitempty"`
 	SQL           string             `json:"sql,omitempty"`
 	Metadata      json.RawMessage    `json:"metadata,omitempty"`
-	Meta          json.RawMessage    `json:"meta,omitempty"`
+	Meta          json.RawMessage    `json:"_meta,omitempty"`
 }
 
 // ListMeta is the metadata payload for list responses.
@@ -92,6 +94,6 @@ type SSEEvent struct {
 	RowCount     int             `json:"row_count,omitempty"`
 	RowIDs       []any           `json:"row_ids,omitempty"`
 	Detail       map[string]any  `json:"detail,omitempty"`
-	Meta         json.RawMessage `json:"meta,omitempty"`
+	Meta         json.RawMessage `json:"_meta,omitempty"`
 	Timestamp    string          `json:"timestamp"`
 }

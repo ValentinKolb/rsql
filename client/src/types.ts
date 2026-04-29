@@ -52,7 +52,9 @@ export interface TableCreateRequest {
   metadata?: Record<string, unknown>;
   columns?: ColumnDefinition[];
   sql?: string;
-  meta?: Record<string, unknown>;
+  /** Audit-meta passthrough. Wire key is `_meta` so it cannot collide with
+   *  a user-defined column named `meta`. */
+  _meta?: Record<string, unknown>;
 }
 
 export interface TableUpdateRequest {
@@ -62,14 +64,14 @@ export interface TableUpdateRequest {
   rename_columns?: Record<string, string>;
   sql?: string;
   metadata?: Record<string, unknown>;
-  meta?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
 }
 
 export interface IndexCreateRequest {
   type: "index" | "unique" | "fts";
   name?: string;
   columns: string[];
-  meta?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
 }
 
 export interface ListMeta {
@@ -101,7 +103,7 @@ export interface ChangelogEntry {
   action: string;
   table: string;
   detail: Record<string, unknown>;
-  meta?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
 }
 
 export interface SSEEvent {
@@ -114,7 +116,7 @@ export interface SSEEvent {
   row_count?: number;
   row_ids?: Array<string | number>;
   detail?: Record<string, unknown>;
-  meta?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
   timestamp: string;
 }
 

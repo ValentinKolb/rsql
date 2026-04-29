@@ -3,6 +3,7 @@ package sqlite
 import (
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/ValentinKolb/rsql/internal/domain"
@@ -311,6 +312,105 @@ func TestValidateGeneratedFormulaRegression(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestColumnNameReservation locks down the contract: rsql-managed column
+// names cannot be created, renamed to/from, or dropped by user input.
+func TestColumnNameReservation(t *testing.T) {
+	db, _ := openTestDB(t)
+	if err := CreateTableOrView(db, domain.TableCreateRequest{
+		Type:    "table",
+		Name:    "items",
+		Columns: []domain.ColumnDefinition{{Name: "label", Type: "text"}},
+	}); err != nil {
+		t.Fatalf("create base table: %v", err)
+	}
+
+	rejectedNames := []string{"id", "created_at", "updated_at", "_meta", "_secret", "_anything"}
+
+	t.Run("create_with_reserved_column", func(t *testing.T) {
+		for _, name := range rejectedNames {
+			err := CreateTableOrView(db, domain.TableCreateRequest{
+				Type: "table", Name: "doomed_" + strings.ReplaceAll(name, "_", ""),
+				Columns: []domain.ColumnDefinition{{Name: name, Type: "text"}},
+			})
+			if err == nil {
+				t.Fatalf("create with reserved column %q must fail", name)
+			}
+		}
+	})
+
+	t.Run("add_column_reserved", func(t *testing.T) {
+		for _, name := range rejectedNames {
+			err := UpdateTableOrView(db, "items", domain.TableUpdateRequest{
+				AddColumns: []domain.ColumnDefinition{{Name: name, Type: "text"}},
+			})
+			if err == nil {
+				t.Fatalf("add column %q must be rejected", name)
+			}
+		}
+	})
+
+	t.Run("rename_column_to_reserved", func(t *testing.T) {
+		for _, name := range rejectedNames {
+			err := UpdateTableOrView(db, "items", domain.TableUpdateRequest{
+				RenameColumns: map[string]string{"label": name},
+			})
+			if err == nil {
+				t.Fatalf("rename to reserved %q must be rejected", name)
+			}
+		}
+	})
+
+	t.Run("rename_reserved_column", func(t *testing.T) {
+		for _, name := range []string{"id", "created_at", "updated_at"} {
+			err := UpdateTableOrView(db, "items", domain.TableUpdateRequest{
+				RenameColumns: map[string]string{name: "user_" + name},
+			})
+			if err == nil {
+				t.Fatalf("renaming reserved column %q must be rejected", name)
+			}
+		}
+	})
+
+	t.Run("drop_reserved_column", func(t *testing.T) {
+		for _, name := range []string{"id", "created_at", "updated_at"} {
+			err := UpdateTableOrView(db, "items", domain.TableUpdateRequest{
+				DropColumns: []string{name},
+			})
+			if err == nil {
+				t.Fatalf("dropping reserved column %q must be rejected", name)
+			}
+		}
+	})
+
+	// And the positive case: a user-defined column called "meta" must work
+	// now that the audit-meta passthrough lives under "_meta".
+	t.Run("user_column_meta_works", func(t *testing.T) {
+		if err := CreateTableOrView(db, domain.TableCreateRequest{
+			Type: "table", Name: "with_meta",
+			Columns: []domain.ColumnDefinition{
+				{Name: "name", Type: "text"},
+				{Name: "meta", Type: "json"},
+			},
+		}); err != nil {
+			t.Fatalf("create table with meta column: %v", err)
+		}
+		_, _, err := InsertRows(db, "with_meta", []map[string]any{
+			{"name": "x", "meta": map[string]any{"k": "v"}},
+		}, "")
+		if err != nil {
+			t.Fatalf("insert into meta column: %v", err)
+		}
+		row, err := GetRowByID(db, "with_meta", int64(1))
+		if err != nil {
+			t.Fatalf("read back: %v", err)
+		}
+		got, ok := row["meta"].(map[string]any)
+		if !ok || got["k"] != "v" {
+			t.Fatalf("meta round-trip failed: %#v", row["meta"])
+		}
+	})
 }
 
 func floatPtr(v float64) *float64 { return &v }

@@ -759,7 +759,8 @@ func InsertRows(db *sql.DB, table string, rowsIn []map[string]any, prefer string
 func sanitizeAndValidateRow(row map[string]any, columns map[string]domain.ColumnDefinition, forInsert bool) (map[string]any, error) {
 	clean := make(map[string]any, len(row))
 	for key, val := range row {
-		if key == "meta" {
+		// _meta is the audit-meta passthrough, never a column.
+		if key == "_meta" {
 			continue
 		}
 		if key == "id" || key == "created_at" || key == "updated_at" {
@@ -1152,7 +1153,7 @@ func buildUpdateSet(payload map[string]any, columns map[string]domain.ColumnDefi
 	args := make([]any, 0, len(payload))
 
 	for key, val := range payload {
-		if key == "meta" || key == "id" || key == "created_at" || key == "updated_at" {
+		if key == "_meta" || key == "id" || key == "created_at" || key == "updated_at" {
 			continue
 		}
 		if err := validateIdentifier(key); err != nil {

@@ -44,16 +44,21 @@ func TestServiceHelpersAndMapErr(t *testing.T) {
 		t.Fatal("expected missing namespace error")
 	}
 
-	if got := NormalizeMeta(map[string]json.RawMessage{"meta": json.RawMessage(`{"a":1}`)}); got == nil {
+	if got := NormalizeMeta(map[string]json.RawMessage{"_meta": json.RawMessage(`{"a":1}`)}); got == nil {
 		t.Fatal("expected normalize meta")
 	}
 	if got := NormalizeMeta(map[string]json.RawMessage{}); got != nil {
 		t.Fatal("expected nil normalize meta")
 	}
+	// Confirm the legacy unprefixed key is no longer treated as audit-meta
+	// — it is just a regular row field now.
+	if got := NormalizeMeta(map[string]json.RawMessage{"meta": json.RawMessage(`{"a":1}`)}); got != nil {
+		t.Fatal("expected nil normalize meta for legacy unprefixed key")
+	}
 
 	rows, meta, err := ParseRowsPayload(map[string]json.RawMessage{
-		"rows": json.RawMessage(`[{"a":1}]`),
-		"meta": json.RawMessage(`{"u":"1"}`),
+		"rows":  json.RawMessage(`[{"a":1}]`),
+		"_meta": json.RawMessage(`{"u":"1"}`),
 	})
 	if err != nil || len(rows) != 1 || meta == nil {
 		t.Fatalf("parse rows payload bulk: rows=%v meta=%s err=%v", rows, string(meta), err)
@@ -87,8 +92,8 @@ func TestServiceHelpersAndMapErr(t *testing.T) {
 	}
 
 	upd, meta, err := ParseUpdatePayload(map[string]json.RawMessage{
-		"a":    json.RawMessage(`1`),
-		"meta": json.RawMessage(`{"u":"1"}`),
+		"a":     json.RawMessage(`1`),
+		"_meta": json.RawMessage(`{"u":"1"}`),
 	})
 	if err != nil || len(upd) != 1 || meta == nil {
 		t.Fatalf("parse update payload: %v %v %v", upd, string(meta), err)

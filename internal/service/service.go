@@ -980,9 +980,11 @@ func (s *Service) WithNamespaceWrite(name string, fn func(*sql.DB) error) error 
 	return nil
 }
 
-// NormalizeMeta extracts optional meta from arbitrary payload map.
+// NormalizeMeta extracts the optional audit-meta passthrough from a parsed
+// request body. The wire key is `_meta` so it cannot collide with a
+// user-defined column named `meta`.
 func NormalizeMeta(payload map[string]json.RawMessage) json.RawMessage {
-	if raw, ok := payload["meta"]; ok {
+	if raw, ok := payload["_meta"]; ok {
 		return raw
 	}
 	return nil
@@ -1002,7 +1004,7 @@ func ParseRowsPayload(body map[string]json.RawMessage) ([]map[string]any, json.R
 
 	row := make(map[string]any)
 	for k, raw := range body {
-		if k == "meta" {
+		if k == "_meta" {
 			continue
 		}
 		var v any
@@ -1034,7 +1036,7 @@ func ParseUpdatePayload(body map[string]json.RawMessage) (map[string]any, json.R
 	meta := NormalizeMeta(body)
 	out := make(map[string]any)
 	for k, raw := range body {
-		if k == "meta" {
+		if k == "_meta" {
 			continue
 		}
 		var v any

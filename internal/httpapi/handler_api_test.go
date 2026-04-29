@@ -127,9 +127,9 @@ func TestAPIMainFlow(t *testing.T) {
 
 	mustStatus(t, doReq(t, h, http.MethodPost, "/v1/ws/tables", map[string]any{"type": "view", "name": "v_kunden", "sql": "SELECT firma FROM kunden"}, nil), http.StatusCreated)
 	mustStatus(t, doReq(t, h, http.MethodPut, "/v1/ws/tables/v_kunden", map[string]any{"sql": "SELECT firma FROM kunden"}, nil), http.StatusOK)
-	mustStatus(t, doReq(t, h, http.MethodDelete, "/v1/ws/tables/v_kunden", map[string]any{"meta": map[string]any{"u": "1"}}, nil), http.StatusNoContent)
-	mustStatus(t, doReq(t, h, http.MethodDelete, "/v1/ws/tables/kunden/indexes/idx_kunden_firma", map[string]any{"meta": map[string]any{"u": "1"}}, nil), http.StatusNoContent)
-	mustStatus(t, doReq(t, h, http.MethodDelete, "/v1/ws/tables/kunden", map[string]any{"meta": map[string]any{"u": "1"}}, nil), http.StatusNoContent)
+	mustStatus(t, doReq(t, h, http.MethodDelete, "/v1/ws/tables/v_kunden", map[string]any{"_meta": map[string]any{"u": "1"}}, nil), http.StatusNoContent)
+	mustStatus(t, doReq(t, h, http.MethodDelete, "/v1/ws/tables/kunden/indexes/idx_kunden_firma", map[string]any{"_meta": map[string]any{"u": "1"}}, nil), http.StatusNoContent)
+	mustStatus(t, doReq(t, h, http.MethodDelete, "/v1/ws/tables/kunden", map[string]any{"_meta": map[string]any{"u": "1"}}, nil), http.StatusNoContent)
 
 	mustStatus(t, doReq(t, h, http.MethodPost, "/v1/namespaces/ws/duplicate", map[string]any{"name": "ws_copy"}, nil), http.StatusCreated)
 	exportRec := doReq(t, h, http.MethodGet, "/v1/namespaces/ws/export", nil, nil)
@@ -232,11 +232,17 @@ func TestAPIErrorAndHelperBranches(t *testing.T) {
 		t.Fatalf("parseInt helper mismatch")
 	}
 
-	payload := []byte(`{"meta":{"u":"1"},"x":1}`)
+	payload := []byte(`{"_meta":{"u":"1"},"x":1}`)
 	r := httptest.NewRequest(http.MethodPost, "/x", bytes.NewReader(payload))
 	r2 := cloneRequestBody(r)
 	if extractMeta(r2) == nil {
 		t.Fatalf("expected meta extraction")
+	}
+	// Legacy unprefixed key must no longer be picked up.
+	r = httptest.NewRequest(http.MethodPost, "/x", bytes.NewReader([]byte(`{"meta":{"u":"1"},"x":1}`)))
+	r2 = cloneRequestBody(r)
+	if extractMeta(r2) != nil {
+		t.Fatalf("legacy meta key must not be extracted")
 	}
 
 	if _, err := readBodyMap(httptest.NewRequest(http.MethodPost, "/x", strings.NewReader("{bad"))); err == nil {

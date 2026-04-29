@@ -14,7 +14,7 @@ type ChangelogEntry struct {
 	Action    string          `json:"action"`
 	Table     string          `json:"table"`
 	Detail    json.RawMessage `json:"detail"`
-	Meta      json.RawMessage `json:"meta,omitempty"`
+	Meta      json.RawMessage `json:"_meta,omitempty"`
 }
 
 // ListChangelog lists schema changelog entries.

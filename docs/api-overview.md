@@ -26,9 +26,27 @@ Public operational endpoints:
 }
 ```
 
-### `meta` passthrough
+### `_meta` passthrough
 
-Write operations can include an optional `meta` object. It is forwarded to SSE events for every write, and to the changelog for schema mutations.
+Write operations can include an optional `_meta` object alongside the regular payload. It is forwarded to SSE events for every write, and to the changelog for schema mutations. The leading underscore distinguishes it from any user-defined column named `meta`.
+
+```json
+POST /v1/demo/tables/contacts/rows
+{ "name": "Ada", "email": "ada@x.com", "_meta": { "actor": "alice" } }
+```
+
+### Reserved column names
+
+The following column names are managed by rsql itself and **cannot** be created, renamed, or dropped via the API:
+
+| Name | Why |
+| --- | --- |
+| `id` | auto-incremented primary key |
+| `created_at` | auto-maintained timestamp |
+| `updated_at` | auto-maintained timestamp |
+| `_meta` | audit-meta passthrough wire key |
+
+Any column name with a leading underscore (`_*`) is also reserved for future rsql-internal use.
 
 ### `Prefer` header
 
@@ -95,7 +113,7 @@ POST /v1/:ns/tables/:table/rows
 }
 ```
 
-Both shapes accept an optional `meta` field that is forwarded to changelog and SSE.
+Both shapes accept an optional `_meta` field that is forwarded to SSE and (for schema mutations) the changelog.
 
 ### Query / Realtime / Observability
 
