@@ -3,13 +3,29 @@ package domain
 import "encoding/json"
 
 // NamespaceConfig configures a namespace database runtime.
+//
+// ForeignKeys is *bool so that callers can distinguish "not provided"
+// (apply the default) from "provided as false" (explicitly disable).
 type NamespaceConfig struct {
 	JournalMode  string `json:"journal_mode"`
 	BusyTimeout  int    `json:"busy_timeout"`
 	MaxDBSize    int64  `json:"max_db_size"`
 	QueryTimeout int    `json:"query_timeout"`
-	ForeignKeys  bool   `json:"foreign_keys"`
+	ForeignKeys  *bool  `json:"foreign_keys,omitempty"`
 	ReadOnly     bool   `json:"read_only"`
+}
+
+// BoolPtr returns a pointer to b. Convenience helper for constructing
+// NamespaceConfig with a definite ForeignKeys value.
+func BoolPtr(b bool) *bool { return &b }
+
+// ForeignKeysOrDefault returns the resolved foreign_keys value: the
+// pointed-to value if set, true otherwise (rsql defaults FKs on).
+func (c NamespaceConfig) ForeignKeysOrDefault() bool {
+	if c.ForeignKeys == nil {
+		return true
+	}
+	return *c.ForeignKeys
 }
 
 // NamespaceDefinition describes a namespace.

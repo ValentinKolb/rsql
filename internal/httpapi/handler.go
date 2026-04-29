@@ -291,8 +291,10 @@ func (h *apiHandler) createNamespace(w http.ResponseWriter, r *http.Request) {
 	if req.Config.QueryTimeout == 0 {
 		req.Config.QueryTimeout = 10000
 	}
-	if !req.Config.ForeignKeys {
-		req.Config.ForeignKeys = true
+	// Only apply the FK default when the caller did not provide a value.
+	// This preserves an explicit false from being silently flipped on.
+	if req.Config.ForeignKeys == nil {
+		req.Config.ForeignKeys = domain.BoolPtr(true)
 	}
 
 	result, err := h.service.CreateNamespace(req)

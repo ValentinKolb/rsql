@@ -10,7 +10,7 @@ import (
 func TestCommonHelpersAndMeta(t *testing.T) {
 	db, _ := openTestDB(t)
 
-	cfg := domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 1000, MaxDBSize: 1 << 20, QueryTimeout: 1000, ForeignKeys: true, ReadOnly: false}
+	cfg := domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 1000, MaxDBSize: 1 << 20, QueryTimeout: 1000, ForeignKeys: domain.BoolPtr(true), ReadOnly: false}
 	if err := ApplyNamespaceConfig(db, cfg); err != nil {
 		t.Fatalf("apply namespace config: %v", err)
 	}

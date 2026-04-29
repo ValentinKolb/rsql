@@ -61,7 +61,7 @@ func ApplyNamespaceConfig(db *sql.DB, cfg domain.NamespaceConfig) error {
 			}
 		}
 	}
-	if _, err := db.Exec(fmt.Sprintf("PRAGMA foreign_keys = %d", boolInt(cfg.ForeignKeys))); err != nil {
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA foreign_keys = %d", boolInt(cfg.ForeignKeysOrDefault()))); err != nil {
 		return fmt.Errorf("apply foreign_keys: %w", err)
 	}
 	if cfg.ReadOnly {

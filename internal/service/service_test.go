@@ -25,7 +25,7 @@ func newTestService(t *testing.T) *Service {
 func TestNamespaceLifecycle(t *testing.T) {
 	svc := newTestService(t)
 
-	cfg := domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true}
+	cfg := domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: domain.BoolPtr(true)}
 	created, err := svc.CreateNamespace(domain.NamespaceDefinition{Name: "workspace1", Config: cfg})
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
@@ -50,7 +50,7 @@ func TestNamespaceLifecycle(t *testing.T) {
 		t.Fatalf("unexpected get namespace result: %v", info)
 	}
 
-	updatedCfg := domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 6000, QueryTimeout: 15000, ForeignKeys: true, ReadOnly: false}
+	updatedCfg := domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 6000, QueryTimeout: 15000, ForeignKeys: domain.BoolPtr(true), ReadOnly: false}
 	if _, err := svc.UpdateNamespaceConfig("workspace1", updatedCfg); err != nil {
 		t.Fatalf("update namespace config: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestNamespaceLifecycle(t *testing.T) {
 func TestSchemaRowsQueryAndStats(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.CreateNamespace(domain.NamespaceDefinition{Name: "work", Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true}})
+	_, err := svc.CreateNamespace(domain.NamespaceDefinition{Name: "work", Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: domain.BoolPtr(true)}})
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestSchemaRowsQueryAndStats(t *testing.T) {
 func TestSSEAndDupExportImport(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.CreateNamespace(domain.NamespaceDefinition{Name: "src", Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true}})
+	_, err := svc.CreateNamespace(domain.NamespaceDefinition{Name: "src", Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: domain.BoolPtr(true)}})
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestSSEAndDupExportImport(t *testing.T) {
 func TestSSEViewInvalidationEvent(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.CreateNamespace(domain.NamespaceDefinition{Name: "ws", Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true}})
+	_, err := svc.CreateNamespace(domain.NamespaceDefinition{Name: "ws", Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: domain.BoolPtr(true)}})
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestSSEViewInvalidationEvent(t *testing.T) {
 func TestImportNamespaceCSVSuccess(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.CreateNamespace(domain.NamespaceDefinition{Name: "csvok", Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true}})
+	_, err := svc.CreateNamespace(domain.NamespaceDefinition{Name: "csvok", Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: domain.BoolPtr(true)}})
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestExportTableCSV(t *testing.T) {
 
 	if _, err := svc.CreateNamespace(domain.NamespaceDefinition{
 		Name:   "exp",
-		Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true},
+		Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: domain.BoolPtr(true)},
 	}); err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}

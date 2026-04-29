@@ -793,7 +793,7 @@ func sanitizeAndValidateRow(row map[string]any, columns map[string]domain.Column
 			}
 			if col.NotNull && col.Default == nil && !col.Auto && col.Name != "id" && col.Name != "created_at" && col.Name != "updated_at" {
 				if _, ok := clean[name]; !ok {
-					return nil, fmt.Errorf("validation_failed: missing required column %s", name)
+					return nil, validationErrf("missing required column %s", name)
 				}
 			}
 		}
@@ -805,7 +805,7 @@ func sanitizeAndValidateRow(row map[string]any, columns map[string]domain.Column
 func validateValue(col domain.ColumnDefinition, val any) (any, error) {
 	if val == nil {
 		if col.NotNull {
-			return nil, fmt.Errorf("validation_failed: %s cannot be null", col.Name)
+			return nil, validationErrf("%s cannot be null", col.Name)
 		}
 		return nil, nil
 	}
@@ -815,13 +815,13 @@ func validateValue(col domain.ColumnDefinition, val any) (any, error) {
 		switch v := val.(type) {
 		case float64:
 			if float64(int64(v)) != v {
-				return nil, fmt.Errorf("validation_failed: %s expects integer", col.Name)
+				return nil, validationErrf("%s expects integer", col.Name)
 			}
 			if col.Min != nil && v < *col.Min {
-				return nil, fmt.Errorf("validation_failed: %s below minimum", col.Name)
+				return nil, validationErrf("%s below minimum", col.Name)
 			}
 			if col.Max != nil && v > *col.Max {
-				return nil, fmt.Errorf("validation_failed: %s above maximum", col.Name)
+				return nil, validationErrf("%s above maximum", col.Name)
 			}
 			return int64(v), nil
 		case int, int64:
@@ -829,22 +829,22 @@ func validateValue(col domain.ColumnDefinition, val any) (any, error) {
 		case json.Number:
 			i, err := v.Int64()
 			if err != nil {
-				return nil, fmt.Errorf("validation_failed: %s expects integer", col.Name)
+				return nil, validationErrf("%s expects integer", col.Name)
 			}
 			return i, nil
 		default:
-			return nil, fmt.Errorf("validation_failed: %s expects integer", col.Name)
+			return nil, validationErrf("%s expects integer", col.Name)
 		}
 	case "real":
 		f, err := toFloat(val)
 		if err != nil {
-			return nil, fmt.Errorf("validation_failed: %s expects number", col.Name)
+			return nil, validationErrf("%s expects number", col.Name)
 		}
 		if col.Min != nil && f < *col.Min {
-			return nil, fmt.Errorf("validation_failed: %s below minimum", col.Name)
+			return nil, validationErrf("%s below minimum", col.Name)
 		}
 		if col.Max != nil && f > *col.Max {
-			return nil, fmt.Errorf("validation_failed: %s above maximum", col.Name)
+			return nil, validationErrf("%s above maximum", col.Name)
 		}
 		return f, nil
 	case "boolean":
@@ -859,49 +859,49 @@ func validateValue(col domain.ColumnDefinition, val any) (any, error) {
 				return int(v), nil
 			}
 		}
-		return nil, fmt.Errorf("validation_failed: %s expects boolean", col.Name)
+		return nil, validationErrf("%s expects boolean", col.Name)
 	case "date":
 		s, ok := val.(string)
 		if !ok {
-			return nil, fmt.Errorf("validation_failed: %s expects date string", col.Name)
+			return nil, validationErrf("%s expects date string", col.Name)
 		}
 		if _, err := time.Parse("2006-01-02", s); err != nil {
-			return nil, fmt.Errorf("validation_failed: %s invalid date", col.Name)
+			return nil, validationErrf("%s invalid date", col.Name)
 		}
 		return s, nil
 	case "datetime":
 		s, ok := val.(string)
 		if !ok {
-			return nil, fmt.Errorf("validation_failed: %s expects datetime string", col.Name)
+			return nil, validationErrf("%s expects datetime string", col.Name)
 		}
 		if _, err := time.Parse(time.RFC3339, s); err != nil {
-			return nil, fmt.Errorf("validation_failed: %s invalid datetime", col.Name)
+			return nil, validationErrf("%s invalid datetime", col.Name)
 		}
 		return s, nil
 	case "json":
 		b, err := json.Marshal(val)
 		if err != nil {
-			return nil, fmt.Errorf("validation_failed: %s invalid json", col.Name)
+			return nil, validationErrf("%s invalid json", col.Name)
 		}
 		return string(b), nil
 	case "select":
 		s, ok := val.(string)
 		if !ok {
-			return nil, fmt.Errorf("validation_failed: %s expects string", col.Name)
+			return nil, validationErrf("%s expects string", col.Name)
 		}
 		for _, opt := range col.Options {
 			if s == opt {
 				return s, nil
 			}
 		}
-		return nil, fmt.Errorf("validation_failed: value '%s' not in options for %s", s, col.Name)
+		return nil, validationErrf("value '%s' not in options for %s", s, col.Name)
 	case "text", "blob":
 		s, ok := val.(string)
 		if !ok {
-			return nil, fmt.Errorf("validation_failed: %s expects string", col.Name)
+			return nil, validationErrf("%s expects string", col.Name)
 		}
 		if col.MaxLength > 0 && len([]rune(s)) > col.MaxLength {
-			return nil, fmt.Errorf("validation_failed: %s exceeds max_length", col.Name)
+			return nil, validationErrf("%s exceeds max_length", col.Name)
 		}
 		if col.Pattern != "" {
 			re, err := regexp.Compile(col.Pattern)
@@ -909,7 +909,7 @@ func validateValue(col domain.ColumnDefinition, val any) (any, error) {
 				return nil, fmt.Errorf("invalid pattern on %s", col.Name)
 			}
 			if !re.MatchString(s) {
-				return nil, fmt.Errorf("validation_failed: value for %s does not match pattern", col.Name)
+				return nil, validationErrf("value for %s does not match pattern", col.Name)
 			}
 		}
 		return s, nil
@@ -1191,43 +1191,43 @@ func buildAtomicOp(colName string, col domain.ColumnDefinition, op string, arg a
 	switch op {
 	case "$increment":
 		if col.Type != "integer" && col.Type != "real" {
-			return "", nil, fmt.Errorf("validation_failed: $increment invalid for %s", colName)
+			return "", nil, validationErrf("$increment invalid for %s", colName)
 		}
 		num, err := toFloat(arg)
 		if err != nil {
-			return "", nil, fmt.Errorf("validation_failed: $increment expects number for %s", colName)
+			return "", nil, validationErrf("$increment expects number for %s", colName)
 		}
 		return colExpr + ` = ` + colExpr + ` + ?`, []any{num}, nil
 	case "$multiply":
 		if col.Type != "integer" && col.Type != "real" {
-			return "", nil, fmt.Errorf("validation_failed: $multiply invalid for %s", colName)
+			return "", nil, validationErrf("$multiply invalid for %s", colName)
 		}
 		num, err := toFloat(arg)
 		if err != nil {
-			return "", nil, fmt.Errorf("validation_failed: $multiply expects number for %s", colName)
+			return "", nil, validationErrf("$multiply expects number for %s", colName)
 		}
 		return colExpr + ` = ` + colExpr + ` * ?`, []any{num}, nil
 	case "$append":
 		if col.Type != "json" {
-			return "", nil, fmt.Errorf("validation_failed: $append invalid for %s", colName)
+			return "", nil, validationErrf("$append invalid for %s", colName)
 		}
 		b, err := json.Marshal(arg)
 		if err != nil {
-			return "", nil, fmt.Errorf("validation_failed: $append invalid json for %s", colName)
+			return "", nil, validationErrf("$append invalid json for %s", colName)
 		}
 		return colExpr + ` = json_insert(COALESCE(` + colExpr + `,'[]'), '$[#]', json(?))`, []any{string(b)}, nil
 	case "$remove":
 		if col.Type != "json" {
-			return "", nil, fmt.Errorf("validation_failed: $remove invalid for %s", colName)
+			return "", nil, validationErrf("$remove invalid for %s", colName)
 		}
 		path, ok := arg.(string)
 		if !ok {
-			return "", nil, fmt.Errorf("validation_failed: $remove expects json path")
+			return "", nil, validationErrf("$remove expects json path")
 		}
 		return colExpr + ` = json_remove(` + colExpr + `, ?)`, []any{path}, nil
 	case "$toggle":
 		if col.Type != "boolean" {
-			return "", nil, fmt.Errorf("validation_failed: $toggle invalid for %s", colName)
+			return "", nil, validationErrf("$toggle invalid for %s", colName)
 		}
 		return colExpr + ` = CASE WHEN ` + colExpr + ` = 1 THEN 0 ELSE 1 END`, nil, nil
 	default:

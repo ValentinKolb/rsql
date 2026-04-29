@@ -124,7 +124,7 @@ func TestSubscribeWritesEvent(t *testing.T) {
 	_, svc := newAPIForTest(t)
 	_, err := svc.CreateNamespace(domain.NamespaceDefinition{
 		Name:   "ws",
-		Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true},
+		Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: domain.BoolPtr(true)},
 	})
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
@@ -172,7 +172,7 @@ func TestSubscribeWithoutFlusher(t *testing.T) {
 	_, svc := newAPIForTest(t)
 	_, err := svc.CreateNamespace(domain.NamespaceDefinition{
 		Name:   "ws",
-		Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true},
+		Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: domain.BoolPtr(true)},
 	})
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)

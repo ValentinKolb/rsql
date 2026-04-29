@@ -12,7 +12,7 @@ import (
 
 func TestServiceHelpersAndMapErr(t *testing.T) {
 	svc := newTestService(t)
-	_, err := svc.CreateNamespace(domain.NamespaceDefinition{Name: "ws", Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true}})
+	_, err := svc.CreateNamespace(domain.NamespaceDefinition{Name: "ws", Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: domain.BoolPtr(true)}})
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}

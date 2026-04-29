@@ -18,7 +18,9 @@ export interface NamespaceConfig {
   busy_timeout: number;
   max_db_size?: number;
   query_timeout: number;
-  foreign_keys: boolean;
+  /** Optional. Omit to apply the server default (true). Send false to
+   *  explicitly disable foreign-key enforcement for the namespace. */
+  foreign_keys?: boolean;
   read_only?: boolean;
 }
 

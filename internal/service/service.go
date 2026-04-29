@@ -388,7 +388,7 @@ func (s *Service) GetNamespaceConfig(name string) (domain.NamespaceConfig, error
 			return err
 		}
 		if !ok {
-			cfg = domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, ForeignKeys: true, QueryTimeout: 10000}
+			cfg = domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, ForeignKeys: domain.BoolPtr(true), QueryTimeout: 10000}
 		}
 		return sqlite.ApplyNamespaceConfig(db, cfg)
 	})
@@ -817,7 +817,7 @@ func (s *Service) Stats(ns string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfgMap := map[string]any{"journal_mode": cfg.JournalMode, "busy_timeout": cfg.BusyTimeout, "max_db_size": cfg.MaxDBSize, "query_timeout": cfg.QueryTimeout, "foreign_keys": cfg.ForeignKeys, "read_only": cfg.ReadOnly}
+	cfgMap := map[string]any{"journal_mode": cfg.JournalMode, "busy_timeout": cfg.BusyTimeout, "max_db_size": cfg.MaxDBSize, "query_timeout": cfg.QueryTimeout, "foreign_keys": cfg.ForeignKeysOrDefault(), "read_only": cfg.ReadOnly}
 
 	var out map[string]any
 	err = s.ns.WithRead(ns, path, func(db *sql.DB) error {
@@ -921,6 +921,9 @@ func (s *Service) publishViewInvalidations(ns, sourceTable, sourceAction string)
 }
 
 func mapErr(err error) error {
+	// Fast paths: typed errors flow through unchanged, sql.ErrNoRows
+	// becomes a 404, and the validation sentinel from sqlite/errors.go is
+	// the canonical 400 source.
 	var derr *domain.Error
 	if errors.As(err, &derr) {
 		return derr
@@ -928,16 +931,16 @@ func mapErr(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.NewError(domain.ErrNotFound, 404, "resource not found")
 	}
+	if errors.Is(err, sqlite.ErrValidation) {
+		return domain.NewError(domain.ErrValidationFailed, 400, err.Error())
+	}
+
+	// Remaining string-based mapping: identifier / structural validation
+	// errors carry "invalid …" messages, and SQLite driver constraint
+	// violations carry "constraint …". Those messages are stable across
+	// our codebase (and the modernc.org/sqlite driver) so a substring
+	// match is safe enough.
 	msg := err.Error()
-	if strings.Contains(msg, "validation_failed") {
-		return domain.NewError(domain.ErrValidationFailed, 400, msg)
-	}
-	if strings.Contains(msg, "table names with _ prefix") {
-		return domain.NewError(domain.ErrValidationFailed, 400, msg)
-	}
-	if strings.Contains(msg, "view") && strings.Contains(msg, "read-only") {
-		return domain.NewError(domain.ErrReadOnly, 405, msg)
-	}
 	if strings.Contains(msg, "invalid") {
 		return domain.NewError(domain.ErrInvalidRequest, 400, msg)
 	}
