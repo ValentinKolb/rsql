@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 type serveRunner func(context.Context, config.Config) error
 
