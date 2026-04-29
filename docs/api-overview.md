@@ -28,7 +28,7 @@ Public operational endpoints:
 
 ### `meta` passthrough
 
-Write operations can include an optional `meta` object. It is forwarded to changelog and SSE events.
+Write operations can include an optional `meta` object. It is forwarded to SSE events for every write, and to the changelog for schema mutations.
 
 ### `Prefer` header
 
@@ -100,7 +100,7 @@ Both shapes accept an optional `meta` field that is forwarded to changelog and S
 
 - `POST /v1/:ns/query` (read-only SQL)
 - `GET /v1/:ns/subscribe` (SSE, optional `?tables=t1,t2`)
-- `GET /v1/:ns/changelog?table=<name>&limit=50&offset=0`
+- `GET /v1/:ns/changelog?table=<name>&limit=50&offset=0` — schema mutations only
 - `GET /v1/:ns/stats`
 
 ## Filtering and Pagination
