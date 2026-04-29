@@ -340,8 +340,21 @@ func TestRowsFilterAndHelpers(t *testing.T) {
 	if _, _, err := BuildWhereForBulk(map[string][]string{"bad": {"bad"}}); err == nil {
 		t.Fatal("expected invalid bulk where")
 	}
+	// The "or" query parameter is supplied as a raw value by the HTTP layer
+	// (the "or=" prefix is consumed by URL parsing). Both the bare-value
+	// shape and the legacy prefixed shape must work.
+	if _, _, err := buildWhereClause(map[string][]string{"x": {"eq.1"}, "or": {"(x.eq.1,y.eq.2)"}}); err != nil {
+		t.Fatalf("or with bare-value shape: %v", err)
+	}
 	if _, _, err := buildWhereClause(map[string][]string{"x": {"eq.1"}, "or": {"or=(x.eq.1,y.eq.2)"}}); err != nil {
-		t.Fatalf("build where clause: %v", err)
+		t.Fatalf("or with legacy prefixed shape: %v", err)
+	}
+	// AND has the same contract.
+	if _, _, err := buildWhereClause(map[string][]string{"and": {"(x.eq.1,y.eq.2)"}}); err != nil {
+		t.Fatalf("and with bare-value shape: %v", err)
+	}
+	if _, _, err := buildWhereClause(map[string][]string{"and": {"and=(x.eq.1,y.eq.2)"}}); err != nil {
+		t.Fatalf("and with legacy prefixed shape: %v", err)
 	}
 }
 

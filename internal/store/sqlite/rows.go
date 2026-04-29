@@ -321,7 +321,7 @@ func buildWhereClause(query map[string][]string) (string, []any, error) {
 	}
 
 	if raw := firstOrDefault(query, "or", ""); raw != "" {
-		frag, fragArgs, err := parseLogicalExpr(raw)
+		frag, fragArgs, err := parseLogicalExpr("or=(" + stripLogicalWrap(raw, "or") + ")")
 		if err != nil {
 			return "", nil, err
 		}
@@ -329,7 +329,7 @@ func buildWhereClause(query map[string][]string) (string, []any, error) {
 		args = append(args, fragArgs...)
 	}
 	if raw := firstOrDefault(query, "and", ""); raw != "" {
-		frag, fragArgs, err := parseLogicalExpr("and=(" + strings.Trim(raw, "()") + ")")
+		frag, fragArgs, err := parseLogicalExpr("and=(" + stripLogicalWrap(raw, "and") + ")")
 		if err != nil {
 			return "", nil, err
 		}
@@ -341,6 +341,20 @@ func buildWhereClause(query map[string][]string) (string, []any, error) {
 		return "", nil, nil
 	}
 	return strings.Join(parts, " AND "), args, nil
+}
+
+// stripLogicalWrap normalizes the value of an `or` / `and` query parameter
+// by removing an optional `<op>=` prefix and the outermost matching parens.
+// Both shapes must be accepted because:
+//   - HTTP query parsing yields the bare value `(a.eq.1,b.eq.2)`
+//   - test fixtures and some clients pass the prefixed form `or=(a.eq.1,…)`
+func stripLogicalWrap(raw, op string) string {
+	v := strings.TrimSpace(raw)
+	v = strings.TrimPrefix(v, op+"=")
+	if strings.HasPrefix(v, "(") && strings.HasSuffix(v, ")") {
+		v = v[1 : len(v)-1]
+	}
+	return v
 }
 
 func parseLogicalExpr(expr string) (string, []any, error) {
