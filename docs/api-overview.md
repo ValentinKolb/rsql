@@ -73,6 +73,29 @@ Supported values:
 - `PUT /v1/:ns/tables/:table/rows/:id`
 - `DELETE /v1/:ns/tables/:table/rows/:id`
 
+#### Insert payload shape
+
+A single row is a flat object:
+
+```json
+POST /v1/:ns/tables/:table/rows
+{ "name": "Ada", "email": "ada@example.com" }
+```
+
+Multiple rows are wrapped in a `rows` array (a top-level JSON array is **not** accepted):
+
+```json
+POST /v1/:ns/tables/:table/rows
+{
+  "rows": [
+    { "name": "Ada",  "email": "ada@example.com" },
+    { "name": "Bob",  "email": "bob@example.com" }
+  ]
+}
+```
+
+Both shapes accept an optional `meta` field that is forwarded to changelog and SSE.
+
 ### Query / Realtime / Observability
 
 - `POST /v1/:ns/query` (read-only SQL)
@@ -98,6 +121,8 @@ Filter operators (`column=<op>.<value>`):
 - `is.null`, `is.true`, `is.false`
 - negation: `not.<op>.<value>`
 
+Each column key takes a single filter value. Repeating the same key (e.g. `?score=gte.50&score=lte.95`) only applies the first occurrence; combine multiple predicates on one column via `and=(…)` instead.
+
 Logical expressions:
 
 - `or=(status.eq.active,priority.gte.3)`
@@ -107,6 +132,12 @@ Example:
 
 ```http
 GET /v1/demo/tables/contacts/rows?status=eq.active&score=gte.80&order=score.desc&limit=20
+```
+
+Range filter via `and`:
+
+```http
+GET /v1/demo/tables/contacts/rows?and=(score.gte.50,score.lte.95)&order=score.desc
 ```
 
 ## Read-only SQL Endpoint
