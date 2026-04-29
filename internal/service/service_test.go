@@ -311,4 +311,53 @@ func TestImportNamespaceCSVSuccess(t *testing.T) {
 	}
 }
 
+func TestExportTableCSV(t *testing.T) {
+	svc := newTestService(t)
+
+	if _, err := svc.CreateNamespace(domain.NamespaceDefinition{
+		Name:   "exp",
+		Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true},
+	}); err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+	if err := svc.CreateTableOrView("exp", domain.TableCreateRequest{
+		Type: "table",
+		Name: "items",
+		Columns: []domain.ColumnDefinition{
+			{Name: "label", Type: "text"},
+			{Name: "score", Type: "integer"},
+			{Name: "active", Type: "boolean"},
+		},
+	}); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	if _, err := svc.InsertRows("exp", "items", []map[string]any{
+		{"label": "Ada", "score": 10, "active": true},
+		{"label": "Bob", "score": 20, "active": false},
+	}, "", nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var buf strings.Builder
+	if err := svc.ExportTableCSV("exp", "items", map[string][]string{
+		"select": {"label,score,active"},
+		"order":  {"id.asc"},
+	}, &buf); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	got := buf.String()
+	wantPrefix := "label,score,active\nAda,10,true\nBob,20,false\n"
+	if got != wantPrefix {
+		t.Fatalf("export body mismatch:\nwant=%q\ngot =%q", wantPrefix, got)
+	}
+
+	// Missing namespace → typed 404.
+	err := svc.ExportTableCSV("missing", "items", nil, &strings.Builder{})
+	assertDomainCode(t, err, domain.ErrNamespaceNotFound)
+
+	// Missing table → typed 404 via mapErr(sql.ErrNoRows).
+	err = svc.ExportTableCSV("exp", "missing_table", nil, &strings.Builder{})
+	assertDomainCode(t, err, domain.ErrNotFound)
+}
+
 func floatPtr(v float64) *float64 { return &v }

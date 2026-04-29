@@ -12,7 +12,7 @@ Each namespace is one isolated SQLite database file, exposed over a REST API for
 - Filter grammar on row lists (`status=eq.active`, `or=(...)`, `like`, `is.null`, …)
 - Read-only SQL endpoint (`SELECT` / `WITH`, single or batch)
 - SSE change stream per namespace
-- Import / export as `.db` files; CSV import per table
+- Import as `.db` or CSV; export as `.db` (namespace) or CSV (per table, with full filter passthrough)
 - Bearer-token auth, Prometheus metrics, optional pprof
 
 ## Run

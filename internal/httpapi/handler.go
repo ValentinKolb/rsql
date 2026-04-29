@@ -229,6 +229,13 @@ func (h *apiHandler) handleNamespaceScoped(w http.ResponseWriter, r *http.Reques
 					methodNotAllowed(w)
 				}
 				return
+			case "export":
+				if r.Method != http.MethodGet {
+					methodNotAllowed(w)
+					return
+				}
+				h.exportTable(w, r, ns, table)
+				return
 			}
 		}
 
@@ -370,6 +377,49 @@ func (h *apiHandler) exportNamespace(w http.ResponseWriter, r *http.Request, ns 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.db"`, ns))
 	http.ServeFile(w, r, path)
+}
+
+// exportTable streams a single table as CSV. The endpoint accepts the same
+// query grammar as /rows (filters, select, order, search, optional limit/
+// offset) plus a required `format` switch. Headers are written before the
+// first byte; failures encountered during streaming are logged and the
+// connection is closed because the HTTP status cannot be amended.
+func (h *apiHandler) exportTable(w http.ResponseWriter, r *http.Request, ns, table string) {
+	query := r.URL.Query()
+	format := query.Get("format")
+	if format == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "format query parameter is required (e.g. format=csv)")
+		return
+	}
+	if format != "csv" {
+		writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("unsupported export format %q", format))
+		return
+	}
+
+	// Pre-flight: surface missing namespace / missing table as a typed
+	// JSON 4xx before sending any CSV bytes. Once headers go out the
+	// HTTP status is fixed.
+	if err := h.service.AssertTableOrViewExists(ns, table); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.csv"`, table))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+
+	if query.Get("bom") == "true" {
+		_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
+	}
+
+	if err := h.service.ExportTableCSV(ns, table, query, w); err != nil {
+		// Status was already sent. Best effort: log and bail out so the
+		// chunked response terminates.
+		h.logger.Error("csv export streaming failed",
+			"namespace", ns, "table", table, "error", err.Error())
+		return
+	}
 }
 
 func (h *apiHandler) importNamespace(w http.ResponseWriter, r *http.Request, ns string) {

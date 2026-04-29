@@ -24,3 +24,6 @@ client/perf/runs/
 
 # Local data
 data/
+
+# Local dex task store
+.dex/

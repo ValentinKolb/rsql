@@ -21,15 +21,20 @@ const (
 	maxSQLVariables  = 900
 )
 
-// tableOrViewExists reports whether sqlite_master holds a table or view
+// TableOrViewExists reports whether sqlite_master holds a table or view
 // with the given name. Used to surface missing tables as a clean 404
 // before issuing SELECTs that would otherwise produce an opaque
-// "no such table" error.
-func tableOrViewExists(db *sql.DB, name string) bool {
+// "no such table" error, and as a pre-flight check from streaming
+// endpoints that cannot retract a status code after sending headers.
+func TableOrViewExists(db *sql.DB, name string) bool {
 	var n int
 	_ = db.QueryRow(`SELECT 1 FROM sqlite_master WHERE name=? AND type IN ('table','view')`, name).Scan(&n)
 	return n == 1
 }
+
+// tableOrViewExists is the unexported alias kept for backwards
+// compatibility with existing internal callers.
+func tableOrViewExists(db *sql.DB, name string) bool { return TableOrViewExists(db, name) }
 
 // IsView reports whether object is a view.
 func IsView(db *sql.DB, name string) (bool, error) {
@@ -315,6 +320,8 @@ func buildOrderClause(order string) (string, error) {
 
 var reservedQuery = map[string]struct{}{
 	"select": {}, "order": {}, "limit": {}, "offset": {}, "or": {}, "and": {}, "search": {},
+	// Reserved by the CSV export endpoint; never interpreted as filters.
+	"format": {}, "bom": {},
 }
 
 // BuildWhereForBulk builds SQL WHERE clause for bulk update/delete operations.

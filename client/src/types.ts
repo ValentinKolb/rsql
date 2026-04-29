@@ -187,6 +187,14 @@ export interface RowsModule<Row extends Record<string, unknown>> {
   bulkDelete(query: QueryInput, options?: MutateOptions): Promise<RsqlResult<{ data: Row[] } | { deleted: number } | void>>;
 }
 
+export interface TableExportOptions {
+  format: "csv";
+  /** Filter / select / order / search params, identical to rows.list. */
+  query?: QueryInput;
+  /** Prepend the UTF-8 BOM (0xEF 0xBB 0xBF) for Excel compatibility. */
+  bom?: boolean;
+}
+
 export interface TableModule<Row extends Record<string, unknown>> {
   rows: RowsModule<Row>;
   indexes: {
@@ -198,6 +206,12 @@ export interface TableModule<Row extends Record<string, unknown>> {
     update(request: TableUpdateRequest): Promise<RsqlResult<{ updated: boolean }>>;
     delete(meta?: Record<string, unknown>): Promise<RsqlResult<void>>;
   };
+  /**
+   * Stream the table contents in the requested format. Returns the underlying
+   * Response so callers can decide how to consume the body (text(), blob(),
+   * getReader(), pipe to disk).
+   */
+  export(options: TableExportOptions): Promise<RsqlResult<Response>>;
 }
 
 export interface NamespaceModule {

@@ -62,6 +62,7 @@ Supported values:
 - `DELETE /v1/:ns/tables/:table`
 - `POST /v1/:ns/tables/:table/indexes`
 - `DELETE /v1/:ns/tables/:table/indexes/:index`
+- `GET /v1/:ns/tables/:table/export?format=csv` — see [CSV export](#csv-export)
 
 ### Rows
 
@@ -139,6 +140,53 @@ Range filter via `and`:
 ```http
 GET /v1/demo/tables/contacts/rows?and=(score.gte.50,score.lte.95)&order=score.desc
 ```
+
+## CSV Export
+
+`GET /v1/:ns/tables/:table/export?format=csv` streams a table or view as RFC 4180 CSV.
+
+The endpoint accepts the same query grammar as `GET /v1/:ns/tables/:table/rows` — every filter operator, logical expression (`or=`, `and=`), `select`, `order`, and `search` works identically. The only differences:
+
+- `format=csv` is required (reserves space for future encoders).
+- `limit` and `offset` are honored when present, but **omitting `limit` exports all rows** (the `/rows` endpoint defaults to `limit=100`).
+- Aggregate selects (`select=status,count()`) work and produce a CSV pivot table.
+- `bom=true` prepends a UTF-8 BOM so Excel renders non-ASCII correctly.
+
+### Type encoding
+
+| Logical type | CSV cell |
+| --- | --- |
+| `text`, `integer`, `real`, `select`, `date`, `datetime` | as stored |
+| `boolean` | `true` / `false` |
+| `json` | inline JSON (CSV-quoted) |
+| `NULL` | empty cell |
+
+### Response headers
+
+```
+Content-Type: text/csv; charset=utf-8
+Content-Disposition: attachment; filename="<table>.csv"
+X-Content-Type-Options: nosniff
+```
+
+### Examples
+
+Filtered export, narrowed columns, deterministic order:
+
+```http
+GET /v1/demo/tables/contacts/export?format=csv&status=eq.active&select=name,email,score&order=score.desc
+```
+
+Aggregated CSV (counts per status):
+
+```http
+GET /v1/demo/tables/contacts/export?format=csv&select=status,count()&order=count().desc
+```
+
+Notes:
+
+- The HTTP status is committed to `200` before the first row is sent. Errors during streaming are logged with the request id; the connection is then closed.
+- Reads are not published to SSE or the changelog (consistent with `/rows`).
 
 ## Read-only SQL Endpoint
 

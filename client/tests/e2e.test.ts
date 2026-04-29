@@ -246,6 +246,111 @@ describe("rsql client e2e", () => {
       await expectOk(client.namespaces.delete(ns));
     });
   }, 60_000);
+
+  test("csv export with full filter parity", async () => {
+    await withServer(async (running) => {
+      const client = createRsqlClient({ url: running.url, token: running.token });
+      const ns = `e2e_csv_${Date.now()}`;
+
+      await expectOk(
+        client.namespaces.create({
+          name: ns,
+          config: {
+            journal_mode: "wal",
+            busy_timeout: 5000,
+            query_timeout: 10000,
+            foreign_keys: true,
+            read_only: false,
+          },
+        }),
+      );
+      const workspace = client.ns(ns);
+      await expectOk(
+        workspace.tables.create({
+          type: "table",
+          name: "items",
+          columns: [
+            { name: "label", type: "text" },
+            { name: "score", type: "integer" },
+            { name: "status", type: "select", options: ["a", "b", "c"] },
+            { name: "active", type: "boolean" },
+          ],
+        }),
+      );
+      await expectOk(
+        workspace.table("items").rows.insert([
+          { label: "Alpha", score: 10, status: "a", active: true },
+          { label: "Bravo", score: 50, status: "b", active: false },
+          { label: "Charlie, Junior", score: 90, status: "a", active: true },
+          { label: 'has "quote"', score: 5, status: "c", active: false },
+        ]),
+      );
+
+      // Basic full export — every row, every column.
+      const fullRes = await workspace.table("items").export({ format: "csv" });
+      if (!fullRes.ok) throw new Error(`export failed: ${fullRes.error.message}`);
+      expect(fullRes.data.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+      expect(fullRes.data.headers.get("content-disposition")).toContain('filename="items.csv"');
+      const fullText = await fullRes.data.text();
+      const fullLines = fullText.trim().split("\n");
+      expect(fullLines.length).toBe(5); // 1 header + 4 rows
+
+      // Filtered export with the same filter grammar as rows.list.
+      const filtered = await workspace.table("items").export({
+        format: "csv",
+        query: { status: "eq.a", select: "label,score", order: "score.desc" },
+      });
+      if (!filtered.ok) throw new Error(`filtered export failed: ${filtered.error.message}`);
+      const filteredText = await filtered.data.text();
+      const filteredLines = filteredText.trim().split("\n");
+      expect(filteredLines).toEqual(["label,score", `"Charlie, Junior",90`, "Alpha,10"]);
+
+      // Special characters round-trip cleanly through RFC-4180 quoting.
+      const specialRes = await workspace.table("items").export({
+        format: "csv",
+        query: { select: "label", order: "id.asc" },
+      });
+      if (!specialRes.ok) throw new Error(`special export failed: ${specialRes.error.message}`);
+      const specialText = await specialRes.data.text();
+      // The "Charlie, Junior" cell must be quoted; the `"quote"` cell must
+      // double its inner quotes.
+      expect(specialText).toContain(`"Charlie, Junior"`);
+      expect(specialText).toContain(`"has ""quote"""`);
+
+      // BOM prefix when requested.
+      const bomRes = await workspace.table("items").export({
+        format: "csv",
+        query: { select: "label", limit: 1 },
+        bom: true,
+      });
+      if (!bomRes.ok) throw new Error(`bom export failed: ${bomRes.error.message}`);
+      const bomBytes = new Uint8Array(await bomRes.data.arrayBuffer());
+      expect(bomBytes[0]).toBe(0xef);
+      expect(bomBytes[1]).toBe(0xbb);
+      expect(bomBytes[2]).toBe(0xbf);
+
+      // Missing format → 400 with structured error body.
+      const noFormat = await client.ns(ns).table("items").export({} as never);
+      expect(noFormat.ok).toBe(false);
+      if (!noFormat.ok) {
+        expect(noFormat.status).toBe(400);
+      }
+
+      // Aggregate select passes through unchanged.
+      const agg = await workspace.table("items").export({
+        format: "csv",
+        query: { select: "status,count()", order: "status.asc" },
+      });
+      if (!agg.ok) throw new Error(`agg export failed: ${agg.error.message}`);
+      const aggText = await agg.data.text();
+      expect(aggText.split("\n")[0]).toBe("status,count");
+      expect(aggText).toContain("a,2");
+      expect(aggText).toContain("b,1");
+      expect(aggText).toContain("c,1");
+
+      await expectOk(client.namespaces.delete(ns));
+    });
+  }, 60_000);
 });
 
 async function expectOk<T>(resultPromise: Promise<RsqlResult<T>>): Promise<T> {

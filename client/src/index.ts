@@ -27,6 +27,7 @@ export type {
   SSESubscribeOptions,
   SSESubscription,
   TableCreateRequest,
+  TableExportOptions,
   TableModule,
   TablesModule,
   TableUpdateRequest,

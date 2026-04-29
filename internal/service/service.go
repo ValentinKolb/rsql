@@ -525,6 +525,46 @@ func (s *Service) ListRows(ns, table string, query map[string][]string) (any, er
 	return out, nil
 }
 
+// AssertTableOrViewExists fails with a typed namespace/not-found error when
+// the namespace or the table/view does not exist. Used by streaming
+// endpoints to pre-flight existence before sending HTTP headers.
+func (s *Service) AssertTableOrViewExists(ns, table string) error {
+	path, err := s.pathForNamespace(ns)
+	if err != nil {
+		return err
+	}
+	err = s.ns.WithRead(ns, path, func(db *sql.DB) error {
+		if !sqlite.TableOrViewExists(db, table) {
+			return sql.ErrNoRows
+		}
+		return nil
+	})
+	if err != nil {
+		return mapErr(err)
+	}
+	return nil
+}
+
+// ExportTableCSV streams a table's rows as CSV-encoded bytes to w.
+//
+// The query map mirrors the shape used by ListRows so HTTP callers can pass
+// r.URL.Query() unchanged. Reads run under the namespace read lock; this
+// function does not publish SSE or changelog events because read paths are
+// not observable in the existing rsql model.
+func (s *Service) ExportTableCSV(ns, table string, query map[string][]string, w io.Writer) error {
+	path, err := s.pathForNamespace(ns)
+	if err != nil {
+		return err
+	}
+	err = s.ns.WithRead(ns, path, func(db *sql.DB) error {
+		return sqlite.StreamCSV(db, table, query, w)
+	})
+	if err != nil {
+		return mapErr(err)
+	}
+	return nil
+}
+
 // GetRow fetches a row by id.
 func (s *Service) GetRow(ns, table string, id any) (map[string]any, error) {
 	path, err := s.pathForNamespace(ns)

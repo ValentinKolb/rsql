@@ -263,6 +263,83 @@ func mustStatus(t *testing.T, rec *httptest.ResponseRecorder, expected int) {
 	}
 }
 
+// TestCSVExportEndpoint exercises the four documented response paths of
+// the streaming CSV export route.
+func TestCSVExportEndpoint(t *testing.T) {
+	h, _ := newAPIForTest(t)
+
+	// Setup: namespace + table + 3 rows.
+	mustStatus(t, doReq(t, h, http.MethodPost, "/v1/namespaces", map[string]any{"name": "exp"}, nil), http.StatusCreated)
+	mustStatus(t, doReq(t, h, http.MethodPost, "/v1/exp/tables", map[string]any{
+		"type": "table", "name": "items",
+		"columns": []map[string]any{
+			{"name": "label", "type": "text"},
+			{"name": "score", "type": "integer"},
+			{"name": "active", "type": "boolean"},
+		},
+	}, nil), http.StatusCreated)
+	mustStatus(t, doReq(t, h, http.MethodPost, "/v1/exp/tables/items/rows", map[string]any{
+		"rows": []map[string]any{
+			{"label": "a", "score": 1, "active": true},
+			{"label": "b", "score": 2, "active": false},
+			{"label": "c", "score": 3, "active": true},
+		},
+	}, nil), http.StatusCreated)
+
+	// 200 happy path
+	rec := doReq(t, h, http.MethodGet, "/v1/exp/tables/items/export?format=csv&select=label,score,active&order=score.asc", nil, nil)
+	mustStatus(t, rec, http.StatusOK)
+	if ct := rec.Header().Get("Content-Type"); ct != "text/csv; charset=utf-8" {
+		t.Fatalf("content-type: %q", ct)
+	}
+	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, `filename="items.csv"`) {
+		t.Fatalf("content-disposition: %q", cd)
+	}
+	body := rec.Body.String()
+	wantBody := "label,score,active\na,1,true\nb,2,false\nc,3,true\n"
+	if body != wantBody {
+		t.Fatalf("body mismatch:\nwant=%q\ngot =%q", wantBody, body)
+	}
+
+	// 400 missing format
+	rec = doReq(t, h, http.MethodGet, "/v1/exp/tables/items/export", nil, nil)
+	mustStatus(t, rec, http.StatusBadRequest)
+	if !strings.Contains(rec.Body.String(), "format query parameter") {
+		t.Fatalf("body: %s", rec.Body.String())
+	}
+
+	// 400 unsupported format
+	rec = doReq(t, h, http.MethodGet, "/v1/exp/tables/items/export?format=xml", nil, nil)
+	mustStatus(t, rec, http.StatusBadRequest)
+	if !strings.Contains(rec.Body.String(), "unsupported export format") {
+		t.Fatalf("body: %s", rec.Body.String())
+	}
+
+	// 404 missing table — the pre-flight returns JSON, status is set
+	// before any CSV bytes are sent.
+	rec = doReq(t, h, http.MethodGet, "/v1/exp/tables/missing/export?format=csv", nil, nil)
+	mustStatus(t, rec, http.StatusNotFound)
+	if !strings.Contains(rec.Body.String(), "not_found") {
+		t.Fatalf("body: %s", rec.Body.String())
+	}
+
+	// 404 missing namespace
+	rec = doReq(t, h, http.MethodGet, "/v1/missing/tables/items/export?format=csv", nil, nil)
+	mustStatus(t, rec, http.StatusNotFound)
+
+	// BOM prefix when ?bom=true
+	rec = doReq(t, h, http.MethodGet, "/v1/exp/tables/items/export?format=csv&bom=true&select=label", nil, nil)
+	mustStatus(t, rec, http.StatusOK)
+	got := rec.Body.Bytes()
+	if len(got) < 3 || got[0] != 0xEF || got[1] != 0xBB || got[2] != 0xBF {
+		t.Fatalf("expected UTF-8 BOM prefix, got first 3 bytes: % X", got[:3])
+	}
+
+	// Method other than GET → 405
+	rec = doReq(t, h, http.MethodPost, "/v1/exp/tables/items/export?format=csv", nil, nil)
+	mustStatus(t, rec, http.StatusMethodNotAllowed)
+}
+
 func extractIDFromInsert(t *testing.T, body []byte) int {
 	t.Helper()
 	var out map[string][]map[string]any

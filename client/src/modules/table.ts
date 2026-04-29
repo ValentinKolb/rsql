@@ -5,6 +5,7 @@ import type {
   QueryInput,
   RowsModule,
   RsqlResult,
+  TableExportOptions,
   TableModule,
   TableUpdateRequest,
 } from "../types";
@@ -59,7 +60,42 @@ export const createTableModule = <Row extends Record<string, unknown>>(
         return deleteWithOptionalMeta(ctx.http, `/${version}/${ctx.namespace}/tables/${ctx.table}`, meta);
       },
     },
+    export(options: TableExportOptions): Promise<RsqlResult<Response>> {
+      // The endpoint accepts the same filter grammar as rows.list. We add
+      // the required `format` (and optional `bom`) on top of the caller's
+      // own filters.
+      const query: Record<string, unknown> = { format: options.format };
+      if (options.bom) {
+        query.bom = "true";
+      }
+      const merged = mergeQuery(options.query, query);
+      const path = ctx.http.withQuery(
+        `/${version}/${ctx.namespace}/tables/${ctx.table}/export`,
+        merged,
+      );
+      return ctx.http.raw(path, { method: "GET" });
+    },
   };
+};
+
+const mergeQuery = (base: QueryInput | undefined, extras: Record<string, unknown>): QueryInput => {
+  const params = new URLSearchParams();
+  if (base instanceof URLSearchParams) {
+    for (const [k, v] of base.entries()) params.append(k, v);
+  } else if (base) {
+    for (const [k, raw] of Object.entries(base)) {
+      const values = Array.isArray(raw) ? raw : [raw];
+      for (const v of values) {
+        if (v === undefined) continue;
+        params.append(k, v === null ? "null" : String(v));
+      }
+    }
+  }
+  for (const [k, v] of Object.entries(extras)) {
+    if (v === undefined || v === null) continue;
+    params.set(k, String(v));
+  }
+  return params;
 };
 
 const createRowsModule = <Row extends Record<string, unknown>>(ctx: Context): RowsModule<Row> => {
