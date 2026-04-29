@@ -154,6 +154,13 @@ func ListRows(db *sql.DB, table string, query map[string][]string) (any, error) 
 		return nil, err
 	}
 
+	// Apply column-type-aware decoding (boolean → bool, json → parsed value).
+	// Schema lookup is best-effort: aggregate queries and views may not have
+	// a stored schema, in which case rows pass through unchanged.
+	if schema, err := TableSchemaForValidation(db, table); err == nil {
+		data = decodeRowsWithSchema(data, schema)
+	}
+
 	if aggMode {
 		return map[string]any{"data": data}, nil
 	}
@@ -588,6 +595,53 @@ func normalizeDBValue(v any) any {
 	}
 }
 
+// decodeRowsWithSchema reverses the SQLite-storage encoding for column types
+// that don't round-trip naturally:
+//
+//   - boolean: stored as INTEGER 0/1, returned as JSON true/false
+//   - json:    stored as TEXT, returned as the parsed value (object/array/scalar)
+//
+// Other types (text, integer, real, date, datetime, select, formula) already
+// round-trip and are left untouched. Unknown columns (e.g. SELECT-expression
+// aliases coming from the read-only query path) are not in the schema and
+// therefore unaffected — only callers that have a schema apply this decoder.
+func decodeRowsWithSchema(rows []map[string]any, schema TableSchema) []map[string]any {
+	if len(rows) == 0 || len(schema.Columns) == 0 {
+		return rows
+	}
+	byName := make(map[string]string, len(schema.Columns))
+	for _, c := range schema.Columns {
+		byName[c.Name] = c.Type
+	}
+	for _, row := range rows {
+		for k, v := range row {
+			typ, ok := byName[k]
+			if !ok || v == nil {
+				continue
+			}
+			switch typ {
+			case "boolean":
+				switch n := v.(type) {
+				case int64:
+					row[k] = n != 0
+				case int:
+					row[k] = n != 0
+				case float64:
+					row[k] = n != 0
+				}
+			case "json":
+				if s, ok := v.(string); ok {
+					var parsed any
+					if err := json.Unmarshal([]byte(s), &parsed); err == nil {
+						row[k] = parsed
+					}
+				}
+			}
+		}
+	}
+	return rows
+}
+
 // GetRowByID fetches a row by id.
 func GetRowByID(db *sql.DB, table string, id any) (map[string]any, error) {
 	if err := validateIdentifier(table); err != nil {
@@ -604,6 +658,9 @@ func GetRowByID(db *sql.DB, table string, id any) (map[string]any, error) {
 	}
 	if len(list) == 0 {
 		return nil, sql.ErrNoRows
+	}
+	if schema, err := TableSchemaForValidation(db, table); err == nil {
+		list = decodeRowsWithSchema(list, schema)
 	}
 	return list[0], nil
 }
@@ -1244,6 +1301,12 @@ func selectRowsByIDsTx(tx *sql.Tx, table string, ids []any) ([]map[string]any, e
 		if row, ok := rowsByID[fmt.Sprint(id)]; ok {
 			ordered = append(ordered, row)
 		}
+	}
+	// Apply column-type-aware decoding within the same transaction so
+	// boolean and json columns round-trip cleanly through bulk paths.
+	var schema TableSchema
+	if _, err := getMetaTx(tx, "table_schema", table, &schema); err == nil {
+		ordered = decodeRowsWithSchema(ordered, schema)
 	}
 	return ordered, nil
 }
