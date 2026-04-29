@@ -31,21 +31,27 @@ jobs:
 
   client:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: client
     steps:
       - uses: actions/checkout@v4
+
+      # The client e2e suite spawns the rsql server binary, so Go is required.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: install
+        working-directory: client
         run: bun install --frozen-lockfile
 
       - name: typecheck
+        working-directory: client
         run: bunx tsc --noEmit
 
       - name: test
+        working-directory: client
         run: bun test
