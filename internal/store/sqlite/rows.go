@@ -21,6 +21,16 @@ const (
 	maxSQLVariables  = 900
 )
 
+// tableOrViewExists reports whether sqlite_master holds a table or view
+// with the given name. Used to surface missing tables as a clean 404
+// before issuing SELECTs that would otherwise produce an opaque
+// "no such table" error.
+func tableOrViewExists(db *sql.DB, name string) bool {
+	var n int
+	_ = db.QueryRow(`SELECT 1 FROM sqlite_master WHERE name=? AND type IN ('table','view')`, name).Scan(&n)
+	return n == 1
+}
+
 // IsView reports whether object is a view.
 func IsView(db *sql.DB, name string) (bool, error) {
 	var typ string
@@ -84,6 +94,11 @@ func mapStorageToLogical(typ string) string {
 func ListRows(db *sql.DB, table string, query map[string][]string) (any, error) {
 	if err := validateIdentifier(table); err != nil {
 		return nil, err
+	}
+	// Surface missing-table as a typed 404 instead of letting the
+	// `SELECT * FROM <missing>` SQL error bubble up as a 500.
+	if !tableOrViewExists(db, table) {
+		return nil, sql.ErrNoRows
 	}
 
 	sel := firstOrDefault(query, "select", "*")
