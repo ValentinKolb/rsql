@@ -23,16 +23,25 @@ type Registry struct {
 }
 
 // Open opens or initializes the control registry database.
+//
+// The control DB is opened in WAL mode with a generous busy timeout and a
+// single-writer connection pool. Without WAL, concurrent namespace creates
+// race for the exclusive write lock and the loser instantly fails with
+// SQLITE_BUSY; with the default unlimited pool, Go can also issue
+// overlapping writers on separate connections and trigger the same error.
 func Open(dataDir string) (*Registry, error) {
 	if err := os.MkdirAll(filepath.Join(dataDir, "namespaces"), 0o755); err != nil {
 		return nil, fmt.Errorf("create namespaces directory: %w", err)
 	}
 
 	path := filepath.Join(dataDir, "control.db")
-	db, err := sql.Open("sqlite", path)
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open control db: %w", err)
 	}
+	// Serialize writers; readers still parallelise thanks to WAL.
+	db.SetMaxOpenConns(1)
 
 	if err := initSchema(db); err != nil {
 		_ = db.Close()

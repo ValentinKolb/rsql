@@ -121,3 +121,38 @@ func TestRegistryDeleteNoRowsType(t *testing.T) {
 		t.Fatalf("expected sql.ErrNoRows, got %v", err)
 	}
 }
+
+// TestRegistryConcurrentCreates verifies that parallel Create calls all
+// succeed when targeting different names. Without WAL + busy_timeout this
+// races on the SQLite exclusive write lock and most callers receive
+// SQLITE_BUSY instantly.
+func TestRegistryConcurrentCreates(t *testing.T) {
+	dir := t.TempDir()
+	r, err := Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer r.Close()
+
+	const n = 20
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func(idx int) {
+			name := "ns_" + string(rune('a'+idx))
+			errs <- r.Create(name, PathFor(dir, name))
+		}(i)
+	}
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent create failed: %v", err)
+		}
+	}
+
+	list, err := r.List()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != n {
+		t.Fatalf("expected %d namespaces, got %d", n, len(list))
+	}
+}
