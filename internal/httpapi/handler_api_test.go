@@ -177,7 +177,9 @@ func TestAPIMainFlow(t *testing.T) {
 	req.Header.Set("Content-Type", csvMw.FormDataContentType())
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK && rec.Code != http.StatusInternalServerError && rec.Code != http.StatusBadRequest {
+	// CSV import requires the target table to exist. ws_copy was duplicated
+	// after kunden was dropped, so we expect a clean 404.
+	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unexpected csv import status: %d body=%s", rec.Code, rec.Body.String())
 	}
 

@@ -48,6 +48,12 @@ func TableSchemaForValidation(db *sql.DB, table string) (TableSchema, error) {
 	if err != nil {
 		return TableSchema{}, err
 	}
+	// PRAGMA table_info returns an empty list for a missing table without
+	// signalling an error. Surface that as ErrNoRows so the upper layers
+	// (service, mapErr) translate it to a clean 404.
+	if len(cols) == 0 {
+		return TableSchema{}, sql.ErrNoRows
+	}
 	schema = TableSchema{Name: table, Type: "table"}
 	for _, c := range cols {
 		typ, _ := c["type"].(string)
@@ -187,6 +193,11 @@ func buildSearchClause(db *sql.DB, table, search string) (string, []any, error) 
 
 	schema, err := TableSchemaForValidation(db, table)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// No table → search matches nothing. Let the upstream caller
+			// surface a 404 from a different code path if appropriate.
+			return "1=0", nil, nil
+		}
 		return "", nil, err
 	}
 	var textCols []string
@@ -947,7 +958,11 @@ func getRowByIDTx(tx *sql.Tx, table string, id any) (map[string]any, error) {
 }
 
 // UpdateRowByID updates a single row by id.
-func UpdateRowByID(db *sql.DB, table string, id any, payload map[string]any, prefer string) ([]map[string]any, error) {
+// UpdateRowByID always returns the affected row (or rows, in case of UPSERT
+// fan-out). The service layer decides whether to surface the representation
+// to the HTTP response based on Prefer; SSE/changelog publishing relies on
+// having the row regardless.
+func UpdateRowByID(db *sql.DB, table string, id any, payload map[string]any, _ string) ([]map[string]any, error) {
 	ids, _, rows, err := updateRows(db, table, payload, `id = ?`, []any{id})
 	if err != nil {
 		return nil, err
@@ -955,14 +970,12 @@ func UpdateRowByID(db *sql.DB, table string, id any, payload map[string]any, pre
 	if len(ids) == 0 {
 		return nil, sql.ErrNoRows
 	}
-	if prefer == "return=representation" {
-		return rows, nil
-	}
-	return nil, nil
+	return rows, nil
 }
 
-// DeleteRowByID deletes one row.
-func DeleteRowByID(db *sql.DB, table string, id any, prefer string) ([]map[string]any, error) {
+// DeleteRowByID always returns the deleted row so the service layer can
+// publish an SSE event and write to the changelog regardless of Prefer.
+func DeleteRowByID(db *sql.DB, table string, id any, _ string) ([]map[string]any, error) {
 	ids, rows, err := deleteRows(db, table, `id = ?`, []any{id})
 	if err != nil {
 		return nil, err
@@ -970,10 +983,7 @@ func DeleteRowByID(db *sql.DB, table string, id any, prefer string) ([]map[strin
 	if len(ids) == 0 {
 		return nil, sql.ErrNoRows
 	}
-	if prefer == "return=representation" {
-		return rows, nil
-	}
-	return nil, nil
+	return rows, nil
 }
 
 // BulkUpdateRows updates filtered rows.

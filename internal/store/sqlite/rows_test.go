@@ -368,12 +368,8 @@ func TestRowsValidationAndAtomicBranches(t *testing.T) {
 		t.Fatalf("unexpected schema name")
 	}
 
-	schemaMissing, err := TableSchemaForValidation(db, "missing")
-	if err != nil {
-		t.Fatalf("missing table schema should not error: %v", err)
-	}
-	if len(schemaMissing.Columns) != 0 {
-		t.Fatalf("expected missing table to have 0 columns, got %#v", schemaMissing.Columns)
+	if _, err := TableSchemaForValidation(db, "missing"); err != sql.ErrNoRows {
+		t.Fatalf("missing table should return sql.ErrNoRows, got %v", err)
 	}
 	if mapStorageToLogical("INTEGER") != "integer" || mapStorageToLogical("REAL") != "real" || mapStorageToLogical("BLOB") != "blob" || mapStorageToLogical("X") != "text" {
 		t.Fatalf("unexpected mapStorageToLogical")
