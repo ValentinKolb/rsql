@@ -71,7 +71,10 @@ func (s *Service) CreateNamespace(req domain.NamespaceDefinition) (map[string]an
 	}
 	path := control.PathFor(s.dataDir, req.Name)
 	if err := s.registry.Create(req.Name, path); err != nil {
-		return nil, domain.WrapError(domain.ErrConflict, 409, "namespace already exists", err)
+		if errors.Is(err, control.ErrAlreadyExists) {
+			return nil, domain.WrapError(domain.ErrConflict, 409, "namespace already exists", err)
+		}
+		return nil, domain.WrapError(domain.ErrInternal, 500, "failed to create namespace record", err)
 	}
 
 	err := s.ns.WithWrite(req.Name, path, func(db *sql.DB) error {

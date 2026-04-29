@@ -31,8 +31,18 @@ func TestServiceNamespaceErrorPaths(t *testing.T) {
 		Name:   "ws",
 		Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true},
 	})
-	if err != nil {
-		t.Fatalf("create existing namespace should be idempotent with current registry semantics: %v", err)
+	assertDomainCode(t, err, domain.ErrConflict)
+
+	// Soft-deleting a namespace and recreating it under the same name is
+	// supported (this is the "restore" path).
+	if err := svc.DeleteNamespace("ws"); err != nil {
+		t.Fatalf("delete for restore: %v", err)
+	}
+	if _, err := svc.CreateNamespace(domain.NamespaceDefinition{
+		Name:   "ws",
+		Config: domain.NamespaceConfig{JournalMode: "wal", BusyTimeout: 5000, QueryTimeout: 10000, ForeignKeys: true},
+	}); err != nil {
+		t.Fatalf("recreate after delete should succeed: %v", err)
 	}
 
 	_, err = svc.GetNamespace("missing")

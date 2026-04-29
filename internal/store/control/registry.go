@@ -66,15 +66,44 @@ func (r *Registry) Close() error {
 	return r.db.Close()
 }
 
-// Create inserts a namespace lookup entry.
+// ErrAlreadyExists is returned by Create when the name is already taken
+// by an active (non-deleted) namespace.
+var ErrAlreadyExists = fmt.Errorf("namespace already exists")
+
+// Create inserts a namespace lookup entry. If the name belonged to a
+// previously soft-deleted namespace, the entry is restored. If the name
+// is currently active, ErrAlreadyExists is returned.
 func (r *Registry) Create(name, dbPath string) error {
-	_, err := r.db.Exec(`
-INSERT INTO namespaces (name, db_path, created_at, deleted_at)
-VALUES (?, ?, ?, NULL)
-ON CONFLICT(name) DO UPDATE SET db_path=excluded.db_path, deleted_at=NULL
-`, name, dbPath, time.Now().UTC().Format(time.RFC3339))
+	tx, err := r.db.Begin()
 	if err != nil {
-		return fmt.Errorf("create namespace record: %w", err)
+		return fmt.Errorf("begin create: %w", err)
+	}
+	defer tx.Rollback()
+
+	var deletedAt sql.NullString
+	row := tx.QueryRow(`SELECT deleted_at FROM namespaces WHERE name=?`, name)
+	switch err := row.Scan(&deletedAt); err {
+	case nil:
+		// Row exists. Active rows must not be silently overwritten;
+		// soft-deleted rows can be restored.
+		if !deletedAt.Valid {
+			return ErrAlreadyExists
+		}
+		if _, err := tx.Exec(`UPDATE namespaces SET db_path=?, created_at=?, deleted_at=NULL WHERE name=?`,
+			dbPath, time.Now().UTC().Format(time.RFC3339), name); err != nil {
+			return fmt.Errorf("restore namespace record: %w", err)
+		}
+	case sql.ErrNoRows:
+		if _, err := tx.Exec(`INSERT INTO namespaces (name, db_path, created_at, deleted_at) VALUES (?, ?, ?, NULL)`,
+			name, dbPath, time.Now().UTC().Format(time.RFC3339)); err != nil {
+			return fmt.Errorf("insert namespace record: %w", err)
+		}
+	default:
+		return fmt.Errorf("lookup namespace: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit create: %w", err)
 	}
 	return nil
 }
