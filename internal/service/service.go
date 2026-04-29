@@ -21,7 +21,7 @@ import (
 	"github.com/ValentinKolb/rsql/internal/store/sqlite"
 )
 
-var namespaceNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+var namespaceNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
 
 // Service orchestrates all rsql operations.
 type Service struct {
