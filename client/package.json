@@ -1,0 +1,30 @@
+{
+  "name": "@valentinkolb/rsql-client",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "files": [
+    "src",
+    "README.md",
+    "package.json"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests",
+    "test:e2e": "bun test ./tests/e2e.test.ts",
+    "test:perf": "bun test ./tests/performance.test.ts",
+    "perf:fast": "bun run ./perf/cli.ts fast",
+    "perf:deep": "bun run ./perf/cli.ts deep",
+    "perf:report": "bun run ./perf/cli.ts report"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

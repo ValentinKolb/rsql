@@ -1,0 +1,26 @@
+# OS / Editor
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+
+# Logs / temp
+*.log
+*.tmp
+*.temp
+
+# Go
+*.out
+coverage.out
+*.test
+
+# Node / Bun
+node_modules/
+client/node_modules/
+.bun/
+
+# Performance artifacts
+client/perf/runs/
+
+# Local data
+data/

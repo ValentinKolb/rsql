@@ -1,0 +1,33 @@
+export { createRsqlClient } from "./client";
+export { rsql } from "./default";
+
+export type {
+  ApiErrorBody,
+  ChangelogEntry,
+  ColumnDefinition,
+  CreateRsqlClientOptions,
+  ImportFile,
+  IndexCreateRequest,
+  ListMeta,
+  ListResponse,
+  MutateOptions,
+  NamespaceConfig,
+  NamespaceDefinition,
+  NamespaceModule,
+  NamespaceRecord,
+  NamespacesModule,
+  QueryInput,
+  QueryRequest,
+  QueryStatement,
+  QueryValue,
+  RowsModule,
+  RsqlClient,
+  RsqlResult,
+  SSEEvent,
+  SSESubscribeOptions,
+  SSESubscription,
+  TableCreateRequest,
+  TableModule,
+  TablesModule,
+  TableUpdateRequest,
+} from "./types";

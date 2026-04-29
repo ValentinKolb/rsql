@@ -1,0 +1,25 @@
+# VCS / editor
+.git
+.gitignore
+.idea
+.vscode
+**/.DS_Store
+
+# Local data
+data/
+
+# Docs / meta (not needed in the build context)
+README.md
+SECURITY.md
+LICENSE
+docs/
+skills/
+.github/
+
+# Client (built and tested separately)
+client/
+
+# Build outputs
+bin/
+*.out
+*.test
