@@ -30,6 +30,18 @@ Generated columns (`column.formula`) are concatenated into SQLite DDL because SQ
 
 Regression tests in `internal/store/sqlite/schema_test.go` cover known bypass attempts.
 
+## Operational constraints
+
+### Single-process per data directory
+
+A given `--data-dir` is owned by exactly one running `rsql` process. The server takes no cross-process file lock and does not arbitrate concurrent writers across instances. Running two `rsql` processes against the same directory can corrupt the control registry or namespace databases under load.
+
+For HA / horizontal scaling, run separate data directories per process and shard namespaces at the calling service layer. Backups are plain `.db` file copies, so an offline copy plus restart on a new host is the supported failover.
+
+### Crash recovery
+
+`service.New` runs a single reconcile pass against the on-disk state at startup; see [docs/development.md § Crash recovery](docs/development.md#crash-recovery). The two known lifecycle crash windows (mid-`CreateNamespace`, mid-`DeleteNamespace`) heal on the next boot. SSE event delivery is at-most-once: subscribers that fall behind their channel buffer drop events permanently for that connection.
+
 ## Reporting a vulnerability
 
 Please open a [GitHub Security Advisory](https://github.com/ValentinKolb/rsql/security/advisories/new) for any suspected vulnerability. Do not open a public issue. A response is typically provided within seven days.
