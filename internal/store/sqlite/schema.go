@@ -410,26 +410,66 @@ func UpdateTableOrView(db *sql.DB, name string, req domain.TableUpdateRequest) e
 	defer tx.Rollback()
 
 	if typ == "view" {
-		if strings.TrimSpace(req.SQL) == "" {
-			return fmt.Errorf("view update requires sql")
-		}
-		if _, err := tx.Exec(`DROP VIEW ` + quotedIdentifier(name)); err != nil {
-			return fmt.Errorf("drop old view: %w", err)
-		}
-		if _, err := tx.Exec(`CREATE VIEW ` + quotedIdentifier(name) + ` AS ` + req.SQL); err != nil {
-			return fmt.Errorf("create updated view: %w", err)
+		// Views support either an SQL replacement, a rename, or both.
+		if strings.TrimSpace(req.SQL) == "" && req.Rename == "" && len(req.Metadata) == 0 {
+			return fmt.Errorf("invalid view update: requires sql, rename, or metadata")
 		}
 
-		schema := TableSchema{Name: name, Type: "view", SQL: req.SQL, SourceTables: extractSourceTables(req.SQL), Metadata: req.Metadata}
-		if err := putMetaTx(tx, "table_schema", name, schema); err != nil {
+		// Load existing schema so renames without an explicit SQL update
+		// can carry the existing definition over to the new view name.
+		var current TableSchema
+		_, _ = getMetaTx(tx, "table_schema", name, &current)
+
+		viewName := name
+		if req.Rename != "" {
+			if err := validateIdentifier(req.Rename); err != nil {
+				return err
+			}
+			viewName = req.Rename
+		}
+
+		// SQLite does not support ALTER TABLE … RENAME TO on views; for a
+		// rename or SQL replacement we drop the old view and recreate it
+		// under the (possibly new) name with the (possibly new) SQL.
+		newSQL := strings.TrimSpace(req.SQL)
+		if newSQL == "" {
+			newSQL = current.SQL
+		}
+		if req.Rename != "" || strings.TrimSpace(req.SQL) != "" {
+			if newSQL == "" {
+				return fmt.Errorf("invalid view update: rename without an existing or new sql is not possible")
+			}
+			if _, err := tx.Exec(`DROP VIEW ` + quotedIdentifier(name)); err != nil {
+				return fmt.Errorf("drop old view: %w", err)
+			}
+			if _, err := tx.Exec(`CREATE VIEW ` + quotedIdentifier(viewName) + ` AS ` + newSQL); err != nil {
+				return fmt.Errorf("create updated view: %w", err)
+			}
+		}
+
+		// Schema metadata: write under the new name, drop any stale entry
+		// under the old name when a rename happened.
+		schema := TableSchema{Name: viewName, Type: "view", SQL: newSQL, SourceTables: extractSourceTables(newSQL), Metadata: req.Metadata}
+		if len(schema.Metadata) == 0 {
+			schema.Metadata = current.Metadata
+		}
+		if err := putMetaTx(tx, "table_schema", viewName, schema); err != nil {
 			return err
 		}
-		if len(req.Metadata) > 0 {
-			if err := putMetaTx(tx, "table_meta", name, json.RawMessage(req.Metadata)); err != nil {
+		if viewName != name {
+			if err := deleteMetaTx(tx, "table_schema", name); err != nil {
+				return err
+			}
+			if err := deleteMetaTx(tx, "table_meta", name); err != nil {
 				return err
 			}
 		}
-		if err := appendSchemaLogTx(tx, "update_view", name, req, req.Meta); err != nil {
+		if len(req.Metadata) > 0 {
+			if err := putMetaTx(tx, "table_meta", viewName, json.RawMessage(req.Metadata)); err != nil {
+				return err
+			}
+		}
+		if err := appendSchemaLogTx(tx, "update_view", viewName, req, req.Meta); err != nil {
 			return err
 		}
 		return tx.Commit()
