@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -37,12 +38,121 @@ func New(dataDir string, idleTimeout time.Duration) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Service{
+	s := &Service{
 		dataDir:  dataDir,
 		registry: reg,
 		ns:       namespace.NewManager(namespace.Config{IdleTimeout: idleTimeout}),
 		broker:   sse.NewBroker(),
-	}, nil
+	}
+	s.reconcile(slog.Default())
+	return s, nil
+}
+
+// reconcile resolves the two known crash-window inconsistencies between the
+// registry and the on-disk state, plus stale export artifacts. Called once
+// on startup. Failures are logged but never block the boot — a single
+// broken namespace must not prevent the rest of the server from coming up.
+//
+// Steps:
+//
+//  1. Purge data/exports/* — those files only exist in-flight. Anything
+//     left over after a clean boot is by definition stale.
+//  2. For every active registry row:
+//     - file missing → soft-delete the registry row (closes the
+//       "crash mid-DELETE" window where os.Remove succeeded but
+//       registry.Delete didn't).
+//     - file exists → re-run EnsureInternalSchema and reapply the stored
+//       NamespaceConfig. Both are idempotent so a healthy namespace is
+//       a no-op; a partial-CREATE namespace is healed.
+//  3. Surface any *.db file under data/namespaces that has no registry
+//     entry as an INFO log line. Do not delete — could be an intentional
+//     backup copy or a hand-restored database.
+func (s *Service) reconcile(logger *slog.Logger) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	// 1. Stale exports.
+	exportDir := filepath.Join(s.dataDir, "exports")
+	if err := os.RemoveAll(exportDir); err != nil {
+		logger.Warn("reconcile: purge exports failed", "dir", exportDir, "error", err)
+	}
+
+	// 2. Walk the registry.
+	recs, err := s.registry.List()
+	if err != nil {
+		logger.Error("reconcile: list registry failed", "error", err)
+		return
+	}
+	registered := make(map[string]struct{}, len(recs))
+	for _, rec := range recs {
+		registered[filepath.Base(rec.DBPath)] = struct{}{}
+
+		if _, statErr := os.Stat(rec.DBPath); errors.Is(statErr, os.ErrNotExist) {
+			logger.Warn("reconcile: registry row references missing file, soft-deleting",
+				"namespace", rec.Name, "path", rec.DBPath)
+			if delErr := s.registry.Delete(rec.Name); delErr != nil {
+				logger.Error("reconcile: soft-delete failed",
+					"namespace", rec.Name, "error", delErr)
+			}
+			continue
+		}
+
+		// File exists — heal idempotently.
+		healErr := s.ns.WithWrite(rec.Name, rec.DBPath, func(db *sql.DB) error {
+			if err := sqlite.EnsureInternalSchema(db); err != nil {
+				return err
+			}
+			var cfg domain.NamespaceConfig
+			ok, err := sqlite.GetMeta(db, "namespace_config", "self", &cfg)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				cfg = domain.NamespaceConfig{
+					JournalMode:  "wal",
+					BusyTimeout:  5000,
+					QueryTimeout: 10000,
+					ForeignKeys:  domain.BoolPtr(true),
+				}
+				if err := sqlite.PutMeta(db, "namespace_config", "self", cfg); err != nil {
+					return err
+				}
+			}
+			return sqlite.ApplyNamespaceConfig(db, cfg)
+		})
+		if healErr != nil {
+			logger.Warn("reconcile: heal failed (namespace remains in registry)",
+				"namespace", rec.Name, "error", healErr)
+		}
+	}
+
+	// 3. Orphan-file scan.
+	nsDir := filepath.Join(s.dataDir, "namespaces")
+	entries, err := os.ReadDir(nsDir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Warn("reconcile: read namespaces dir failed", "dir", nsDir, "error", err)
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".db") {
+			continue
+		}
+		if _, ok := registered[name]; ok {
+			continue
+		}
+		// SQLite WAL/SHM sidecars are tied to the main DB and not
+		// independently meaningful — silently skip.
+		if strings.HasSuffix(name, "-wal") || strings.HasSuffix(name, "-shm") {
+			continue
+		}
+		logger.Info("reconcile: orphan namespace file (no registry row)",
+			"path", filepath.Join(nsDir, name))
+	}
 }
 
 // Close closes all service resources.

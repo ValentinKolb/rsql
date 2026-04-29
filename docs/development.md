@@ -92,6 +92,16 @@ Useful env keys:
 - `RSQL_PPROF_ENABLED`
 - `RSQL_PPROF_LISTEN`
 
+## Crash recovery
+
+`service.New()` runs a single-pass reconcile against the on-disk state at startup:
+
+- `data/exports/*` is purged — those files only exist mid-export.
+- Each active registry row is checked: if the `.db` file is missing the row is soft-deleted (recovers a crash mid-`DeleteNamespace` between `os.Remove` and `registry.Delete`); if the file is present, `EnsureInternalSchema` and the stored `NamespaceConfig` are reapplied (idempotent — heals a crash mid-`CreateNamespace` before init finished).
+- Files under `data/namespaces/` with no registry row are surfaced as `INFO` log lines but **never auto-deleted** (could be an intentional backup or hand-restored copy).
+
+A single broken namespace never blocks boot — the failure is logged at `WARN` level and the rest of the registry is processed normally.
+
 ## Notes
 
 - All core packages include `doc.go` summaries for package intent.
