@@ -80,10 +80,14 @@ const buildBinary = async (): Promise<string> => {
       stderr: "pipe",
     });
 
+    // Drain stderr concurrently with the wait so a chatty build (e.g. the
+    // module-download messages on first run in CI) cannot fill the OS pipe
+    // buffer and deadlock the process.
+    const stderrPromise = readText(build.stderr);
     const exitCode = await build.exited;
+    const stderr = await stderrPromise;
     if (exitCode !== 0) {
-      const stderr = await readText(build.stderr);
-      throw new Error(`failed to build rsql binary:\\n${stderr}`);
+      throw new Error(`failed to build rsql binary (exit ${exitCode}):\n${stderr || "<no stderr>"}`);
     }
     return binaryPath;
   })();

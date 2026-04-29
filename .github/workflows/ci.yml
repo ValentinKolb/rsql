@@ -40,6 +40,11 @@ jobs:
           go-version: "1.23"
           cache: true
 
+      # Pre-fetch the Go module cache so the per-test `go build` does not
+      # have to download modules and risk pipe-buffer pressure.
+      - name: go mod download
+        run: go mod download
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
