@@ -57,6 +57,9 @@ jobs:
         working-directory: client
         run: bunx tsc --noEmit
 
+      # Bun's default test timeout (5 s) is shorter than a cold `go build`
+      # on a fresh runner. The first test that triggers the per-suite
+      # binary build needs more headroom.
       - name: test
         working-directory: client
-        run: bun test
+        run: bun test --timeout 60000
